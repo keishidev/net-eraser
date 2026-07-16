@@ -170,7 +170,7 @@ function render() {
   fadeval.textContent = fade.value + "%";
   const dw = canvas.width, dh = canvas.height;
   const out = new Uint8ClampedArray(resultDisp.length);
-  const tint = $("brushmode").checked;   // ブラシ中は保護エリアを赤く可視化
+  const tint = $("showprotect").checked; // 保護エリアの赤表示(独立トグル)
   if ($("showorig").checked) out.set(origDisp);
   else {
     for (let i = 0, p = 0; i < dw * dh; i++, p += 4) {
@@ -193,6 +193,7 @@ function render() {
 
 // ===== 保護ブラシ =====
 let painting = false;
+let brushOn = false;
 function paintAt(ev) {
   const rect = canvas.getBoundingClientRect();
   const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
@@ -215,20 +216,26 @@ function paintAt(ev) {
 }
 canvas.addEventListener("dragstart", ev => ev.preventDefault());
 canvas.addEventListener("pointerdown", ev => {
-  if (!$("brushmode").checked || !protectDisp) return;
+  if (!brushOn || !protectDisp) return;
   painting = true;
   try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
   paintAt(ev);
   ev.preventDefault();
 });
 canvas.addEventListener("pointermove", ev => {
-  if (painting && $("brushmode").checked) { paintAt(ev); ev.preventDefault(); }
+  if (painting && brushOn) { paintAt(ev); ev.preventDefault(); }
 });
 canvas.addEventListener("pointerup", () => { painting = false; });
-$("brushmode").addEventListener("change", () => {
-  canvas.style.cursor = $("brushmode").checked ? "crosshair" : "default";
+$("brushbtn").addEventListener("click", () => {
+  brushOn = !brushOn;
+  $("brushbtn").classList.toggle("active", brushOn);
+  canvas.style.cursor = brushOn ? "crosshair" : "default";
+  if (brushOn && !$("showprotect").checked) {  // 塗る時は自動で表示ON
+    $("showprotect").checked = true;
+  }
   queueRender();
 });
+$("showprotect").addEventListener("change", queueRender);
 $("clearprotect").addEventListener("click", () => {
   if (protectDisp) protectDisp.fill(0);
   queueRender();

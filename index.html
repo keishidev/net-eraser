@@ -43,8 +43,8 @@
       <label>網の濃さ <input type="range" id="fade" min="0" max="100" value="35">
         <span id="fadeval">35%</span></label>
       <label class="cmp"><input type="checkbox" id="showorig"> 元画像</label>
-      <label class="cmp"><input type="checkbox" id="brushmode"> 🖌保護ブラシ
-        <span class="hint">(塗った所は変換しない)</span></label>
+      <button id="brushbtn" class="toolbtn" title="塗った所は変換しない">🖌 保護ブラシ</button>
+      <label class="cmp"><input type="checkbox" id="showprotect" checked> 保護を赤表示</label>
       <label>サイズ <input type="range" id="brushsize" min="10" max="160" value="50"></label>
       <button id="clearprotect">保護クリア</button>
       <button id="download">この濃さで保存</button>
