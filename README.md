@@ -1,46 +1,43 @@
-# ネット消しゴム (WebGPU版)
+# 🥎 ネット消しゴム
 
-防球ネット越しの写真から網を消す／薄くするWebアプリ。**全処理がブラウザ内で完結**（写真はどこにも送信されない・サーバー代ゼロ）。
+防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできるWebアプリ。
+**すべての処理がブラウザ内で完結**します（写真はどこにもアップロードされません）。
 
-## 実測 (RTX 5070 Ti / Chrome / 24MP写真)
-- 検出 5.5s (opencv.js WASM) + インペイント 17.6s (**WebGPU**) ≒ 23秒
-- モデルDL 初回のみ 27MB (キャッシュされる)
+## 特徴
+- 🔍 ネット自動検出（opencv.js / WASM）
+- 🎨 AIインペイント: 高品質 **LaMa** / 軽量 **MI-GAN**（ONNX Runtime Web / **WebGPU**）
+- 🎚 ネットの濃さスライダー（0%=完全除去 〜 100%=元のまま）リアルタイム
+- 🖐 画像長押しで元写真と比較
+- 🖌 保護ブラシ（なぞった場所は変換しない）
+- 🐹 キララモード（マスコットの顔・肉球を自動保護）/ 🌏 汎用モード
+- ⚡ 起動時にWebGPU対応を自動チェック
 
-## 構成
-```
-index.html / style.css
-js/detect.js   … 網検出 + キャラ保護 (Pythonパイプラインの opencv.js 移植)
-                  検出1600px / 保護2048px / フル解像度Matは作らない(WASMヒープ対策)
-js/inpaint.js  … MI-GAN pipeline_v2 ONNX を onnxruntime-web で512タイル実行
-                  (uint8入出力, マスクは穴=0, コサイン窓ブレンド, WebGPU→WASMフォールバック)
-js/app.js      … UI・フル解像度合成・網の濃さスライダー(リアルタイム)
-models/        … migan_pipeline_v2.onnx (無い場合はHugging FaceからCDN取得)
-vendor/opencv.js
-```
-
-## 起動 (ローカル)
-```
+## 使い方（ローカル）
+```bash
 cd webapp
 python -m http.server 8823
 # → http://localhost:8823/
 ```
+初回はAIモデル（27MB or 198MB）を自動ダウンロードします（以後キャッシュ）。
 
-## 公開 (GitHub Pages等の静的ホスティング)
-- `webapp/` をそのまま公開。`models/` は容量が大きければ除外してOK
-  (inpaint.js が Hugging Face から自動フェッチ: andraniksargsyan/migan)
-- WebGPU必須ではない: 非対応ブラウザはWASMに自動フォールバック(遅い)
+## 公開（静的ホスティング）
+GitHub Pages / Cloudflare Pages などにそのまま配置できます。
+`models/` の大きいモデルはリポジトリに含めなくてもOK（Hugging Faceから自動取得します）。
 
-## 技術メモ / 学び
-- LaMa ONNX (Carve, 198MB) はFFTをEinsum/MatMulに展開した変換版だが、
-  **ort-web の WebGPU EP では FFC 内の Add がシェイプ非対応で実行時失敗**
-  (wasmフォールバックは動くが遅すぎ) → **MI-GAN pipeline_v2 (27MB, 畳み込みのみ)** に変更
-- MI-GAN pipeline_v2 の入力規約: image uint8 [1,3,H,W] RGB / mask uint8 [1,1,H,W]
-  **穴=0, 保持=255** (inpaint-web と同じ)。出力 uint8 RGB
-- opencv.js のWASMヒープは24MP RGBA(96MB)の一括確保で死ぬ
-  → フル解像度はJS側(Canvas/TypedArray)のみで扱い、cv.Matは常に縮小版
+## Google認証（任意）
+`js/config.js` の `googleClientId` にOAuthクライアントIDを設定するとログインゲートが有効になります。
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → 認証情報 → OAuthクライアントID（ウェブアプリ）を作成
+2. 「承認済みのJavaScript生成元」に公開URL（例 `https://xxxx.github.io`）を追加
+3. クライアントIDを `js/config.js` に貼り付け
+4. `allowedEmails` に許可したいGmailアドレスを列挙（空なら誰でもログイン可）
 
-## 今後の改善候補
-- [ ] 検出をWeb Workerへ(処理中のUIフリーズ解消・進捗表示を正確に)
-- [ ] Python版finalizeの残り(残骸スイープ・輪郭復元)の移植
-- [ ] LaMa高品質モード(WASM実行を選択式で)
-- [ ] スマホ対応(メモリ制約でタイル数制限)
+## 実測パフォーマンス（RTX 5070 Ti / Chrome / 24MP写真）
+| 工程 | 高品質(LaMa) | 標準(MI-GAN) |
+|---|---|---|
+| 検出 | 約6秒 | 約6秒 |
+| インペイント一式 | 約70秒 | 約35秒 |
+
+## 使用モデル・ライセンス
+- [LaMa](https://github.com/advimman/lama) (ONNX変換: [Carve/LaMa-ONNX](https://huggingface.co/Carve/LaMa-ONNX))
+- [MI-GAN](https://github.com/Picsart-AI-Research/MI-GAN) (ONNX: [andraniksargsyan/migan](https://huggingface.co/andraniksargsyan/migan))
+- [opencv.js](https://opencv.org/) / [ONNX Runtime Web](https://onnxruntime.ai/)

@@ -1,2 +1,4 @@
 ﻿models/lama_fp32.onnx
 test/
+demo.gif
+devsave.py
