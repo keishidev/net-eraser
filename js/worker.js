@@ -1,13 +1,13 @@
-// worker.js — 全処理(検出+保護+推論+スイープ+合成素材)をWorkerで実行
-// main threadはUI専任(フリーズしない)
+// worker.js — 全処理(検出+保護+推論+仕上げチェーン)をWorkerで実行
+// パイプライン: 検出 → インペイント → 腕/リボンバッファ → 残骸スイープ → 輪郭復元
 "use strict";
 
 importScripts("../vendor/opencv.js");
-importScripts("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.webgpu.min.js");
+importScripts("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.webgpu.min.js");
 importScripts("detect.js");
 importScripts("inpaint.js");
 // worker内ではwasmバイナリの相対解決が壊れるためCDNを明示
-ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/";
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
 
 const cvReady = new Promise(res => {
   if (typeof cv !== "undefined" && cv.Mat) res();
@@ -17,7 +17,6 @@ const cvReady = new Promise(res => {
 const post = (type, payload, transfer) => self.postMessage({ type, ...payload }, transfer || []);
 const progress = (text, pct) => post("progress", { text, pct });
 
-// small スケール cv.Mat(CV_8U) → フル Uint8Array (最近傍)
 function upscaleMaskNearest(maskMat, W, H) {
   const mw = maskMat.cols, mh = maskMat.rows, src = maskMat.data;
   const out = new Uint8Array(W * H);
@@ -29,7 +28,6 @@ function upscaleMaskNearest(maskMat, W, H) {
   return out;
 }
 
-// small スケール cv.Mat(CV_32F) → フル Float32Array (バイリニア)
 function upscaleFloatBilinear(matF, W, H) {
   const mw = matF.cols, mh = matF.rows, src = matF.data32F;
   const out = new Float32Array(W * H);
@@ -46,7 +44,6 @@ function upscaleFloatBilinear(matF, W, H) {
   return out;
 }
 
-// フル RGBA → small ImageData (box平均)
 function downsampleRGBA(rgba, W, H, tw) {
   const th = Math.round(H * tw / W);
   const out = new Uint8ClampedArray(tw * th * 4);
@@ -68,80 +65,7 @@ function downsampleRGBA(rgba, W, H, tw) {
   return new ImageData(out, tw, th);
 }
 
-self.onmessage = async (e) => {
-  const msg = e.data;
-  if (msg.type !== "process") return;
-  try {
-    await cvReady;
-    const { W, H, kirara } = msg;
-    const full = new Uint8ClampedArray(msg.full);
-    const smallData = new ImageData(new Uint8ClampedArray(msg.small.buf), msg.small.w, msg.small.h);
-    const midData = msg.mid ? new ImageData(new Uint8ClampedArray(msg.mid.buf), msg.mid.w, msg.mid.h) : null;
-
-    progress("モデル準備中…", null);
-    const ep = await Inpaint.loadModel((t, p) => progress(t, p));
-
-    const t0 = performance.now();
-    const { mask, thin, subject } = Detect.detectNet(smallData, midData, {
-      kirara, progress: t => progress(t, null),
-    });
-    thin.delete();
-    const detMs = performance.now() - t0;
-
-    const maskData = upscaleMaskNearest(mask, W, H);
-
-    progress("インペイント準備…", null);
-    const t1 = performance.now();
-    let result = await Inpaint.inpaint(full, maskData, W, H, (t, p) => progress(t, p));
-    const inMs = performance.now() - t1;
-
-    // 残骸スイープ: 結果の背景ゾーンに残った点/切れ端を検出して再イン ペイント
-    progress("残骸スイープ…", null);
-    let sweepMs = 0, sweepCov = 0;
-    try {
-      const t2 = performance.now();
-      const smallRes = downsampleRGBA(result, W, H, mask.cols);
-      const sMask = Detect.sweepSpecks(smallRes, subject);
-      if (sMask) {
-        const sData = upscaleMaskNearest(sMask, W, H);
-        let cnt = 0;
-        for (let i = 0; i < sData.length; i++) { if (sData[i]) { cnt++; maskData[i] = 255; } }
-        sweepCov = 100 * cnt / (W * H);
-        if (cnt > 0) {
-          result = await Inpaint.inpaint(result, sData, W, H,
-            (t, p) => progress("スイープ " + t, p));
-        }
-        sMask.delete();
-      }
-      sweepMs = performance.now() - t2;
-    } catch (se) { console.warn("sweep skipped:", se); }
-
-    // フェザーα (small blur → バイリニア拡大)
-    progress("仕上げ…", null);
-    const mFull = cv.matFromArray(mask.rows, mask.cols, cv.CV_8U, upscaleToSmall(maskData, W, H, mask.cols, mask.rows));
-    const mF = new cv.Mat();
-    mFull.convertTo(mF, cv.CV_32F, 1 / 255.0);
-    cv.GaussianBlur(mF, mF, new cv.Size(0, 0), 2);
-    const alpha = upscaleFloatBilinear(mF, W, H);
-    mFull.delete(); mF.delete(); mask.delete(); subject.delete();
-
-    const resBuf = result.buffer;
-    const alphaBuf = alpha.buffer;
-    post("done", {
-      result: resBuf, alpha: alphaBuf, W, H,
-      stats: { detMs, inMs, sweepMs, sweepCov, ep: Inpaint.ep },
-    }, [resBuf, alphaBuf]);
-  } catch (err) {
-    let m = err && err.message;
-    if (typeof err === "number" && typeof cv !== "undefined" && cv.exceptionFromPtr) {
-      try { m = cv.exceptionFromPtr(err).msg; } catch (_) {}
-    }
-    post("error", { message: m || String(err) });
-  }
-};
-
-// フルマスク → smallへ縮小(最近傍) — αフェザー用
-function upscaleToSmall(maskData, W, H, mw, mh) {
+function maskFullToSmall(maskData, W, H, mw, mh) {
   const out = new Uint8Array(mw * mh);
   for (let y = 0; y < mh; y++) {
     const sy = Math.min(H - 1, Math.round(y * H / mh));
@@ -152,3 +76,110 @@ function upscaleToSmall(maskData, W, H, mw, mh) {
   }
   return out;
 }
+
+self.onmessage = async (e) => {
+  const msg = e.data;
+  if (msg.type !== "process") return;
+  try {
+    await cvReady;
+    const { W, H, kirara, model } = msg;
+    const full = new Uint8ClampedArray(msg.full);
+    const smallData = new ImageData(new Uint8ClampedArray(msg.small.buf), msg.small.w, msg.small.h);
+    const midData = msg.mid ? new ImageData(new Uint8ClampedArray(msg.mid.buf), msg.mid.w, msg.mid.h) : null;
+
+    progress("モデル準備中…", null);
+    await Inpaint.loadModel(model || "migan", (t, p) => progress(t, p));
+
+    const t0 = performance.now();
+    const { mask, thin, subject } = Detect.detectNet(smallData, midData, {
+      kirara, progress: t => progress(t, null),
+    });
+    thin.delete();
+    const detMs = performance.now() - t0;
+
+    const maskData = upscaleMaskNearest(mask, W, H);
+
+    // 1) メインインペイント
+    const t1 = performance.now();
+    let result = await Inpaint.inpaint(full, maskData, W, H, (t, p) => progress(t, p));
+    const inMs = performance.now() - t1;
+
+    // 2) 腕/リボンバッファ: ピンク領域の紐周辺を広く再充填(溝・影ごと除去)
+    let bufMs = 0;
+    if (kirara) {
+      try {
+        const t2 = performance.now();
+        progress("腕・リボンの再充填…", null);
+        const zone = Detect.pinkZones(smallData);
+        const strips = Detect.buildStrips(mask, zone);
+        zone.delete();
+        if (strips) {
+          const sData = upscaleMaskNearest(strips, W, H);
+          strips.delete();
+          for (let i = 0; i < sData.length; i++) if (sData[i]) maskData[i] = 255;
+          result = await Inpaint.inpaint(result, sData, W, H,
+            (t, p) => progress("再充填 " + t, p));
+        }
+        bufMs = performance.now() - t2;
+      } catch (be) { console.warn("buffer skipped:", be); }
+    }
+
+    // 3) 残骸スイープ(背景の点/切れ端)
+    let sweepMs = 0;
+    try {
+      const t3 = performance.now();
+      progress("残骸スイープ…", null);
+      const smallRes = downsampleRGBA(result, W, H, mask.cols);
+      const sMask = Detect.sweepSpecks(smallRes, subject);
+      if (sMask) {
+        const sData = upscaleMaskNearest(sMask, W, H);
+        sMask.delete();
+        let cnt = 0;
+        for (let i = 0; i < sData.length; i++) if (sData[i]) { cnt++; maskData[i] = 255; }
+        if (cnt > 0) {
+          result = await Inpaint.inpaint(result, sData, W, H,
+            (t, p) => progress("スイープ " + t, p));
+        }
+      }
+      sweepMs = performance.now() - t3;
+    } catch (se) { console.warn("sweep skipped:", se); }
+
+    // 4) 輪郭復元: キャラのシルエット帯は元画像に戻す(紐横断部を除く)
+    try {
+      progress("輪郭復元…", null);
+      const wMat = Detect.contourWeights(subject, mask);
+      const wFull = upscaleFloatBilinear(wMat, W, H);
+      wMat.delete();
+      for (let i = 0, p = 0; i < W * H; i++, p += 4) {
+        const wv = wFull[i];
+        if (wv > 0.003) {
+          result[p]     = result[p]     * (1 - wv) + full[p]     * wv;
+          result[p + 1] = result[p + 1] * (1 - wv) + full[p + 1] * wv;
+          result[p + 2] = result[p + 2] * (1 - wv) + full[p + 2] * wv;
+        }
+      }
+    } catch (ce) { console.warn("contour skipped:", ce); }
+
+    // 5) フェザーα (fade スライダー用)
+    progress("仕上げ…", null);
+    const mSmall = cv.matFromArray(mask.rows, mask.cols, cv.CV_8U,
+                                   maskFullToSmall(maskData, W, H, mask.cols, mask.rows));
+    const mF = new cv.Mat();
+    mSmall.convertTo(mF, cv.CV_32F, 1 / 255.0);
+    cv.GaussianBlur(mF, mF, new cv.Size(0, 0), 2);
+    const alpha = upscaleFloatBilinear(mF, W, H);
+    mSmall.delete(); mF.delete(); mask.delete(); subject.delete();
+
+    const resBuf = result.buffer, alphaBuf = alpha.buffer;
+    post("done", {
+      result: resBuf, alpha: alphaBuf, W, H,
+      stats: { detMs, inMs, bufMs, sweepMs, ep: Inpaint.ep },
+    }, [resBuf, alphaBuf]);
+  } catch (err) {
+    let m = err && err.message;
+    if (typeof err === "number" && typeof cv !== "undefined" && cv.exceptionFromPtr) {
+      try { m = cv.exceptionFromPtr(err).msg; } catch (_) {}
+    }
+    post("error", { message: m || String(err) });
+  }
+};

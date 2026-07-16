@@ -424,5 +424,62 @@ function sweepSpecks(smallResData, subjectMat, zThr = 1.5, minA = 8, maxA = 1200
   return keep;
 }
 
-return { detectNet, sweepSpecks };
+// ピンク領域(腕・リボン) — 元画像small ImageData から
+function pinkZones(smallData) {
+  const mat = cv.matFromImageData(smallData);
+  const rgb = new cv.Mat(), hsv = new cv.Mat();
+  cv.cvtColor(mat, rgb, cv.COLOR_RGBA2RGB);
+  cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+  mat.delete(); rgb.delete();
+  const pink = new cv.Mat();
+  const lo = new cv.Mat(hsv.rows, hsv.cols, cv.CV_8UC3, new cv.Scalar(135, 60, 70));
+  const hi = new cv.Mat(hsv.rows, hsv.cols, cv.CV_8UC3, new cv.Scalar(180, 255, 255));
+  cv.inRange(hsv, lo, hi, pink);
+  lo.delete(); hi.delete(); hsv.delete();
+  cv.morphologyEx(pink, pink, cv.MORPH_OPEN, ell(5));
+  cv.morphologyEx(pink, pink, cv.MORPH_CLOSE, ell(7));
+  const lab = new cv.Mat(), st = new cv.Mat(), ct = new cv.Mat();
+  const n = cv.connectedComponentsWithStats(pink, lab, st, ct, 8);
+  const sS = smallData.width / 6000;
+  const minA = Math.max(400, Math.round(120000 * sS * sS));
+  const zone = cv.Mat.zeros(pink.rows, pink.cols, cv.CV_8U);
+  const m = new cv.Mat();
+  for (let i = 1; i < n; i++) {
+    if (st.intAt(i, 4) >= minA) { labelEq(lab, i, m); zone.setTo(new cv.Scalar(255), m); }
+  }
+  [pink, lab, st, ct, m].forEach(x => x.delete());
+  return zone;
+}
+
+// 腕/リボンバッファ: 紐マスクを膨張してピンク領域内側に限定(輪郭は触らない)
+function buildStrips(maskSmall, zone) {
+  const strips = new cv.Mat(), zin = new cv.Mat();
+  cv.dilate(maskSmall, strips, ell(9));   // ≒31pxフル相当
+  cv.erode(zone, zin, ell(7));            // ≒27pxフル相当 内側限定
+  cv.bitwise_and(strips, zin, strips);
+  zin.delete();
+  if (cv.countNonZero(strips) === 0) { strips.delete(); return null; }
+  return strips;
+}
+
+// 輪郭復元の重み: シルエット±帯のうち紐横断部以外 → 0..1 (CV_32F)
+function contourWeights(subject, maskSmall) {
+  const bandOut = new cv.Mat(), bandIn = new cv.Mat(), band = new cv.Mat();
+  cv.dilate(subject, bandOut, ell(7));
+  cv.erode(subject, bandIn, ell(7));
+  cv.subtract(bandOut, bandIn, band);
+  bandOut.delete(); bandIn.delete();
+  const cordD = new cv.Mat(), keep = new cv.Mat();
+  cv.dilate(maskSmall, cordD, ell(7));
+  cv.bitwise_not(cordD, cordD);
+  cv.bitwise_and(band, cordD, keep);
+  band.delete(); cordD.delete();
+  const w = new cv.Mat();
+  keep.convertTo(w, cv.CV_32F, 1 / 255.0);
+  keep.delete();
+  cv.GaussianBlur(w, w, new cv.Size(0, 0), 2);
+  return w;
+}
+
+return { detectNet, sweepSpecks, pinkZones, buildStrips, contourWeights };
 })();

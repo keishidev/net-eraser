@@ -1,4 +1,4 @@
-// inpaint.js — LaMa ONNX (512固定) を onnxruntime-web(WebGPU) でタイル実行し、
+// inpaint.js — ONNX インペイント (MI-GAN / LaMa) を 512タイルで実行
 // マスク画素のみフル解像度に合成する
 "use strict";
 
@@ -6,19 +6,29 @@ const Inpaint = (() => {
 
 const TILE = 512, STRIDE = 448; // 64px オーバーラップ
 
-const MODEL_URLS = [
-  "models/migan_pipeline_v2.onnx",  // ローカル開発用
-  "https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx",
-];
+const MODELS = {
+  migan: {
+    label: "MI-GAN",
+    urls: [
+      "models/migan_pipeline_v2.onnx",
+      "https://huggingface.co/andraniksargsyan/migan/resolve/main/migan_pipeline_v2.onnx",
+    ],
+  },
+  lama: {
+    label: "LaMa",
+    urls: [
+      "models/lama_fp32.onnx",
+      "https://huggingface.co/Carve/LaMa-ONNX/resolve/main/lama_fp32.onnx",
+    ],
+  },
+};
 
-let session = null;
-let epUsed = "";
-let modelBuf = null;
+const sessions = {};   // key -> {session, ep}
+let activeKey = "migan";
 
-async function loadModel(onProgress) {
-  if (session) return epUsed;
-  let buf = null, lastErr = null;
-  for (const url of MODEL_URLS) {
+async function fetchModel(urls, onProgress) {
+  let lastErr = null;
+  for (const url of urls) {
     try {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -31,49 +41,57 @@ async function loadModel(onProgress) {
         chunks.push(value); got += value.length;
         if (total) onProgress(`モデルDL中 ${(got / 1048576).toFixed(0)}/${(total / 1048576).toFixed(0)} MB`, got / total * 100);
       }
-      buf = new Uint8Array(got);
+      const buf = new Uint8Array(got);
       let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
-      break;
+      return buf;
     } catch (e) { lastErr = e; }
   }
-  if (!buf) throw new Error("モデルの取得に失敗: " + lastErr);
-  modelBuf = buf;
-  onProgress("推論セッション初期化中…", 100);
-  await createSession("webgpu");
-  return epUsed;
+  throw new Error("モデルの取得に失敗: " + lastErr);
 }
 
-async function createSession(ep) {
-  session = await ort.InferenceSession.create(modelBuf, {
-    executionProviders: ep === "webgpu" ? ["webgpu"] : ["wasm"],
-    graphOptimizationLevel: "all",
-  });
-  epUsed = ep;
+async function loadModel(key, onProgress) {
+  activeKey = key = key || "migan";
+  if (sessions[key]) return sessions[key].ep;
+  const buf = await fetchModel(MODELS[key].urls, onProgress);
+  onProgress(`${MODELS[key].label} セッション初期化中…(初回は数十秒)`, null);
+  let session = null, ep = "";
+  for (const e of ["webgpu", "wasm"]) {
+    try {
+      session = await ort.InferenceSession.create(buf, {
+        executionProviders: [e], graphOptimizationLevel: "all",
+      });
+      ep = e; break;
+    } catch (err) { console.warn("EP create failed:", e, err); }
+  }
+  if (!session) throw new Error("セッション作成に失敗");
+  sessions[key] = { session, ep };
+  return ep;
 }
 
-// 実行(初回失敗時は wasm に切替えて再試行)
 async function runSafe(feeds, onProgress) {
+  const s = sessions[activeKey];
   try {
-    return await session.run(feeds);
+    return await s.session.run(feeds);
   } catch (e) {
-    if (epUsed === "webgpu") {
-      console.warn("WebGPU実行失敗 → WASMへフォールバック", e);
-      onProgress && onProgress("WebGPU非対応の演算を検出 → CPU(WASM)で続行…", null);
-      await createSession("wasm");
-      return await session.run(feeds);
+    if (s.ep === "webgpu") {
+      console.warn("WebGPU実行失敗 → WASMへ", e);
+      onProgress && onProgress("WebGPU失敗 → CPU(WASM)で続行…", null);
+      s.session = await ort.InferenceSession.create(
+        await fetchModel(MODELS[activeKey].urls, onProgress || (() => {})),
+        { executionProviders: ["wasm"] });
+      s.ep = "wasm";
+      return await s.session.run(feeds);
     }
     throw e;
   }
 }
 
-// タイル一覧: マスクが載っている 512 窓のみ
 function planTiles(maskData, W, H) {
   const tiles = [];
   for (let y = 0; ; y += STRIDE) {
     let ty = Math.min(y, Math.max(0, H - TILE));
     for (let x = 0; ; x += STRIDE) {
       let tx = Math.min(x, Math.max(0, W - TILE));
-      // マスク有無チェック(粗く)
       let has = false;
       for (let yy = ty; yy < Math.min(ty + TILE, H) && !has; yy += 4)
         for (let xx = tx; xx < Math.min(tx + TILE, W); xx += 4)
@@ -86,7 +104,6 @@ function planTiles(maskData, W, H) {
   return tiles;
 }
 
-// コサイン窓(タイル継ぎ目のブレンド)
 const winCache = (() => {
   const w = new Float32Array(TILE * TILE);
   for (let y = 0; y < TILE; y++) {
@@ -99,37 +116,50 @@ const winCache = (() => {
   return w;
 })();
 
-// rgba: Uint8ClampedArray(フル), mask: Uint8Array(フル 0/255)
-// 返り値: result RGBA (マスク部のみ置換済み)
-async function inpaint(rgba, maskData, W, H, onProgress) {
+// rgba(フル) + maskData(フル 0/255) → マスク画素のみ置換したRGBAを返す
+async function inpaint(rgba, maskData, W, H, onProgress, tag) {
   const tiles = planTiles(maskData, W, H);
   if (!tiles.length) return rgba.slice();
   const accR = new Float32Array(W * H), accG = new Float32Array(W * H),
         accB = new Float32Array(W * H), accW = new Float32Array(W * H);
-
-  const imgT = new Uint8Array(3 * TILE * TILE);
-  const mskT = new Uint8Array(TILE * TILE);
+  const isLama = activeKey === "lama";
+  const imgU8 = isLama ? null : new Uint8Array(3 * TILE * TILE);
+  const mskU8 = isLama ? null : new Uint8Array(TILE * TILE);
+  const imgF = isLama ? new Float32Array(3 * TILE * TILE) : null;
+  const mskF = isLama ? new Float32Array(TILE * TILE) : null;
+  const label = tag || "インペイント";
 
   for (let ti = 0; ti < tiles.length; ti++) {
     const [tx, ty] = tiles[ti];
-    onProgress(`インペイント ${ti + 1}/${tiles.length} タイル…`, (ti / tiles.length) * 100);
-    // 準備 (MIGAN pipeline_v2: uint8 RGB 0-255, マスクは穴=0/その他255)
+    onProgress(`${label} ${ti + 1}/${tiles.length} タイル…`, (ti / tiles.length) * 100);
     for (let y = 0; y < TILE; y++) {
       const sy = Math.min(H - 1, ty + y);
       for (let x = 0; x < TILE; x++) {
         const sx = Math.min(W - 1, tx + x);
         const si = (sy * W + sx) * 4, di = y * TILE + x;
-        imgT[di] = rgba[si];
-        imgT[TILE * TILE + di] = rgba[si + 1];
-        imgT[2 * TILE * TILE + di] = rgba[si + 2];
-        mskT[di] = maskData[sy * W + sx] ? 0 : 255;
+        const hole = maskData[sy * W + sx] ? 1 : 0;
+        if (isLama) {
+          imgF[di] = rgba[si] / 255;
+          imgF[TILE * TILE + di] = rgba[si + 1] / 255;
+          imgF[2 * TILE * TILE + di] = rgba[si + 2] / 255;
+          mskF[di] = hole;                     // LaMa: 穴=1
+        } else {
+          imgU8[di] = rgba[si];
+          imgU8[TILE * TILE + di] = rgba[si + 1];
+          imgU8[2 * TILE * TILE + di] = rgba[si + 2];
+          mskU8[di] = hole ? 0 : 255;          // MIGAN: 穴=0
+        }
       }
     }
-    const out = await runSafe({
-      image: new ort.Tensor("uint8", imgT, [1, 3, TILE, TILE]),
-      mask: new ort.Tensor("uint8", mskT, [1, 1, TILE, TILE]),
-    }, onProgress);
-    const o = out[Object.keys(out)[0]].data; // [1,3,512,512] uint8 RGB
+    const feeds = isLama ? {
+      image: new ort.Tensor("float32", imgF, [1, 3, TILE, TILE]),
+      mask: new ort.Tensor("float32", mskF, [1, 1, TILE, TILE]),
+    } : {
+      image: new ort.Tensor("uint8", imgU8, [1, 3, TILE, TILE]),
+      mask: new ort.Tensor("uint8", mskU8, [1, 1, TILE, TILE]),
+    };
+    const out = await runSafe(feeds, onProgress);
+    const o = out[Object.keys(out)[0]].data;   // LaMa: float 0..255 / MIGAN: uint8
     for (let y = 0; y < TILE; y++) {
       const sy = ty + y; if (sy >= H) break;
       for (let x = 0; x < TILE; x++) {
@@ -143,7 +173,7 @@ async function inpaint(rgba, maskData, W, H, onProgress) {
         accW[gi] += wv;
       }
     }
-    await new Promise(r => setTimeout(r, 0)); // UI息継ぎ
+    await new Promise(r => setTimeout(r, 0));
   }
   const res = rgba.slice();
   for (let gi = 0; gi < W * H; gi++) {
@@ -157,5 +187,5 @@ async function inpaint(rgba, maskData, W, H, onProgress) {
   return res;
 }
 
-return { loadModel, inpaint, get ep() { return epUsed; } };
+return { loadModel, inpaint, get ep() { return (sessions[activeKey] || {}).ep || ""; } };
 })();

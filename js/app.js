@@ -70,6 +70,7 @@ async function handleFile(file) {
     const fullBuf = fullData.data.buffer;
     wk.postMessage({
       type: "process", W, H, kirara: mode === "kirara",
+      model: document.getElementById("model").value,
       full: fullBuf,
       small: { buf: smallData.data.buffer, w: smallData.width, h: smallData.height },
       mid: midData ? { buf: midData.data.buffer, w: midData.width, h: midData.height } : null,
@@ -87,6 +88,7 @@ async function handleFile(file) {
     const s = m.stats;
     detail.textContent =
       `合計 ${total}s — 検出 ${(s.detMs / 1000).toFixed(1)}s / インペイント ${(s.inMs / 1000).toFixed(1)}s (${s.ep})` +
+      (s.bufMs ? ` / 再充填 ${(s.bufMs / 1000).toFixed(1)}s` : "") +
       (s.sweepMs ? ` / スイープ ${(s.sweepMs / 1000).toFixed(1)}s` : "");
   } catch (e) {
     console.error(e);
@@ -190,11 +192,19 @@ $("download").addEventListener("click", () => {
   const c = document.createElement("canvas");
   c.width = W; c.height = H;
   c.getContext("2d").putImageData(new ImageData(out, W, H), 0, 0);
+  setStatus("JPEG生成中…");
   c.toBlob(b => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
     a.download = `net_removed_${fade.value}pct.jpg`;
+    document.body.appendChild(a);
     a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
+    // 開発用: localhostのdevsaveサーバーが居れば黙ってPOST(無ければ失敗を無視)
+    if (location.hostname === "localhost") {
+      fetch(`http://localhost:8824/save/${a.download}`, { method: "POST", body: b }).catch(() => {});
+    }
+    setStatus("");
   }, "image/jpeg", 0.95);
 });
 
