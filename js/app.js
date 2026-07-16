@@ -25,7 +25,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=11");
+  if (!worker) worker = new Worker("js/worker.js?v=12");
   return worker;
 }
 
@@ -39,10 +39,10 @@ function getWorker() {
     const info = ad.info || {};
     const name = [info.description, info.device, info.vendor, info.architecture]
       .filter(v => v && String(v).trim()).map(String)[0] || "";
-    el.textContent = `✅ WebGPU 利用可能${name ? " — " + name : ""}（高速処理OK）`;
+    el.textContent = `✅ WebGPUが使えます${name ? "（" + name + "）" : ""} — 高速に処理できます`;
     el.className = "gpustatus ok";
   } catch (_) {
-    el.textContent = "⚠️ WebGPUが使えないため CPU(WASM) で動作します。高品質LaMaは非常に遅くなるので「標準 MI-GAN」推奨";
+    el.textContent = "⚠️ WebGPU非対応のため、CPUでゆっくり動作します。仕上がりは「⚡標準」がおすすめです";
     el.className = "gpustatus warn";
     // 非対応環境では標準モデルを既定に
     const mg = document.querySelector('input[name=model][value=migan]');
@@ -62,6 +62,7 @@ fileIn.addEventListener("change", () => { if (fileIn.files[0]) handleFile(fileIn
 
 async function handleFile(file) {
   if (busy) return;
+  if (window.AUTH_OK === false) return;   // 認証ゲート
   busy = true; ready = false;
   try {
     const mode = document.querySelector("input[name=mode]:checked").value;
@@ -81,7 +82,7 @@ async function handleFile(file) {
     setup.hidden = true; view.hidden = false;
     $("controlbar").dataset.disabled = "1";
     buildOrigOnlyDisplay();
-    setOverlay(true, "準備中…", null);
+    setOverlay(true, "読み込んでいます…", null);
 
     // 開発用: ?fake=1 で推論スキップ
     if (location.search.includes("fake=1")) {
@@ -130,10 +131,12 @@ function finishReady(s, totalSec) {
   setOverlay(false);
   $("controlbar").dataset.disabled = "0";
   ready = true; busy = false;
+  const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep;
   detail.textContent = totalSec
-    ? `合計 ${totalSec.toFixed(1)}s — 検出 ${(s.detMs / 1000).toFixed(1)}s / インペイント ${(s.inMs / 1000).toFixed(1)}s (${s.ep})` +
-      (s.bufMs ? ` / 再充填 ${(s.bufMs / 1000).toFixed(1)}s` : "") +
-      (s.sweepMs ? ` / スイープ ${(s.sweepMs / 1000).toFixed(1)}s` : "")
+    ? `処理時間 ${totalSec.toFixed(1)}秒（検出 ${(s.detMs / 1000).toFixed(1)}s・ネット消し ${(s.inMs / 1000).toFixed(1)}s` +
+      (s.bufMs ? `・整え ${(s.bufMs / 1000).toFixed(1)}s` : "") +
+      (s.sweepMs ? `・掃除 ${(s.sweepMs / 1000).toFixed(1)}s` : "") +
+      ` ／ ${engine}実行）`
     : "";
 }
 

@@ -39,7 +39,7 @@ async function fetchModel(urls, onProgress) {
         const { done, value } = await reader.read();
         if (done) break;
         chunks.push(value); got += value.length;
-        if (total) onProgress(`モデルDL中 ${(got / 1048576).toFixed(0)}/${(total / 1048576).toFixed(0)} MB`, got / total * 100);
+        if (total) onProgress(`AIモデルをダウンロード中… ${(got / 1048576).toFixed(0)} / ${(total / 1048576).toFixed(0)} MB (初回のみ)`, got / total * 100);
       }
       const buf = new Uint8Array(got);
       let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
@@ -53,7 +53,7 @@ async function loadModel(key, onProgress) {
   activeKey = key = key || "migan";
   if (sessions[key]) return sessions[key].ep;
   const buf = await fetchModel(MODELS[key].urls, onProgress);
-  onProgress(`${MODELS[key].label} セッション初期化中…(初回は数十秒)`, null);
+  onProgress(`${MODELS[key].label} を起動しています…（初回は数十秒かかります）`, null);
   let session = null, ep = "";
   for (const e of ["webgpu", "wasm"]) {
     try {
@@ -127,11 +127,11 @@ async function inpaint(rgba, maskData, W, H, onProgress, tag) {
   const mskU8 = isLama ? null : new Uint8Array(TILE * TILE);
   const imgF = isLama ? new Float32Array(3 * TILE * TILE) : null;
   const mskF = isLama ? new Float32Array(TILE * TILE) : null;
-  const label = tag || "インペイント";
+  const label = tag || "ネットを消しています";
 
   for (let ti = 0; ti < tiles.length; ti++) {
     const [tx, ty] = tiles[ti];
-    onProgress(`${label} ${ti + 1}/${tiles.length} タイル…`, (ti / tiles.length) * 100);
+    onProgress(`${label}… (${ti + 1}/${tiles.length})`, (ti / tiles.length) * 100);
     for (let y = 0; y < TILE; y++) {
       const sy = Math.min(H - 1, ty + y);
       for (let x = 0; x < TILE; x++) {

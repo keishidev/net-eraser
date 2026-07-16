@@ -87,7 +87,7 @@ self.onmessage = async (e) => {
     const smallData = new ImageData(new Uint8ClampedArray(msg.small.buf), msg.small.w, msg.small.h);
     const midData = msg.mid ? new ImageData(new Uint8ClampedArray(msg.mid.buf), msg.mid.w, msg.mid.h) : null;
 
-    progress("モデル準備中…", null);
+    progress("AIモデルを準備しています…", null);
     await Inpaint.loadModel(model || "migan", (t, p) => progress(t, p));
 
     const t0 = performance.now();
@@ -109,7 +109,7 @@ self.onmessage = async (e) => {
     if (kirara) {
       try {
         const t2 = performance.now();
-        progress("腕・リボンの再充填…", null);
+        progress("腕やリボンを整えています…", null);
         const zone = Detect.pinkZones(smallData);
         const strips = Detect.buildStrips(mask, zone);
         zone.delete();
@@ -118,7 +118,7 @@ self.onmessage = async (e) => {
           strips.delete();
           for (let i = 0; i < sData.length; i++) if (sData[i]) maskData[i] = 255;
           result = await Inpaint.inpaint(result, sData, W, H,
-            (t, p) => progress("再充填 " + t, p));
+            (t, p) => progress(t, p), "腕やリボンを整えています");
         }
         bufMs = performance.now() - t2;
       } catch (be) { console.warn("buffer skipped:", be); }
@@ -128,7 +128,7 @@ self.onmessage = async (e) => {
     let sweepMs = 0;
     try {
       const t3 = performance.now();
-      progress("残骸スイープ…", null);
+      progress("消し残しを掃除しています…", null);
       const smallRes = downsampleRGBA(result, W, H, mask.cols);
       const sMask = Detect.sweepSpecks(smallRes, subject);
       if (sMask) {
@@ -138,7 +138,7 @@ self.onmessage = async (e) => {
         for (let i = 0; i < sData.length; i++) if (sData[i]) { cnt++; maskData[i] = 255; }
         if (cnt > 0) {
           result = await Inpaint.inpaint(result, sData, W, H,
-            (t, p) => progress("スイープ " + t, p));
+            (t, p) => progress(t, p), "消し残しを掃除しています");
         }
       }
       sweepMs = performance.now() - t3;
@@ -146,7 +146,7 @@ self.onmessage = async (e) => {
 
     // 4) 輪郭復元: キャラのシルエット帯は元画像に戻す(紐横断部を除く)
     try {
-      progress("輪郭復元…", null);
+      progress("輪郭を整えています…", null);
       const wMat = Detect.contourWeights(subject, mask);
       const wFull = upscaleFloatBilinear(wMat, W, H);
       wMat.delete();
@@ -161,7 +161,7 @@ self.onmessage = async (e) => {
     } catch (ce) { console.warn("contour skipped:", ce); }
 
     // 5) フェザーα (fade スライダー用)
-    progress("仕上げ…", null);
+    progress("最後の仕上げをしています…", null);
     const mSmall = cv.matFromArray(mask.rows, mask.cols, cv.CV_8U,
                                    maskFullToSmall(maskData, W, H, mask.cols, mask.rows));
     const mF = new cv.Mat();

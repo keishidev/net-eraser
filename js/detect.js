@@ -138,7 +138,7 @@ function medianOfMaskedPixels(gray, maskMat) {
 // キャラ保護: midスケールで実行し、small スケールのマスクへ反映
 // mask/thin は smallスケール(cv.Mat)。midData は 2048長辺 ImageData
 function applyProtections(mask, thin, midData, smallW, smallH, P) {
-  P("キャラ保護(口・目・鼻・肉球)…");
+  P("顔のパーツを保護しています…");
   const mid = cv.matFromImageData(midData);
   const mW = mid.cols, mH = mid.rows;
   const rgb = new cv.Mat(), gray = new cv.Mat(), hsv = new cv.Mat();
@@ -256,7 +256,7 @@ function detectNet(smallData, midData, opts) {
   const kirara = !!opts.kirara;
   const workW = smallData.width, workH = smallData.height;
 
-  P("前処理…");
+  P("写真を読み取っています…");
   const small = cv.matFromImageData(smallData);
   const rgb = new cv.Mat();
   cv.cvtColor(small, rgb, cv.COLOR_RGBA2RGB);
@@ -264,7 +264,7 @@ function detectNet(smallData, midData, opts) {
   const gray0 = new cv.Mat();
   cv.cvtColor(rgb, gray0, cv.COLOR_RGB2GRAY);
 
-  P("網の証拠マップ(blackhat)…");
+  P("ネットの線を探しています…");
   const bhK = ell(13);
   const clahe = new cv.CLAHE(2.0, new cv.Size(16, 16));
   const chans = new cv.MatVector();
@@ -279,7 +279,7 @@ function detectNet(smallData, midData, opts) {
   }
   chans.delete(); clahe.delete(); rgb.delete();
 
-  P("二値化と方向性フィルタ…");
+  P("ネットの形をなぞっています…");
   const adap = new cv.Mat(), minM = new cv.Mat(), binimg = new cv.Mat();
   cv.adaptiveThreshold(blackhat, adap, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 41, -7);
   cv.threshold(blackhat, minM, 6, 255, cv.THRESH_BINARY);
@@ -296,7 +296,7 @@ function detectNet(smallData, midData, opts) {
   const netHV = new cv.Mat();
   cv.bitwise_or(Hm, Vm, netHV);
 
-  P("格子の連結性チェック…");
+  P("格子のつながりを確認しています…");
   const d7 = ell(7), Hd = new cv.Mat(), Vd = new cv.Mat(), cross = new cv.Mat();
   cv.dilate(Hm, Hd, d7); cv.dilate(Vm, Vd, d7);
   cv.bitwise_and(Hd, Vd, cross);
@@ -322,7 +322,7 @@ function detectNet(smallData, midData, opts) {
   cv.bitwise_or(net, knotD, net);
   cross.delete(); knotD.delete();
 
-  P("被写体シルエットと背景検出…");
+  P("キャラクターと背景を見分けています…");
   const bhF = new cv.Mat();
   blackhat.convertTo(bhF, cv.CV_32F);
   const z = localZ(bhF, 35, 0.15);
@@ -353,7 +353,7 @@ function detectNet(smallData, midData, opts) {
   cv.max(net, bg, net);
   bg.delete(); bgzone.delete();
 
-  P("マスク仕上げ…");
+  P("消す範囲を決めています…");
   const big = new cv.Mat(), smallG = new cv.Mat();
   cv.dilate(net, big, ell(11));
   cv.dilate(net, smallG, ell(5));
