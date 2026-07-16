@@ -25,7 +25,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=9");
+  if (!worker) worker = new Worker("js/worker.js?v=10");
   return worker;
 }
 
@@ -213,6 +213,23 @@ fade.addEventListener("input", queueRender);
 
 /* ===== 長押しで元画像比較 / 保護ブラシ ===== */
 let painting = false;
+const brushCursor = $("brushcursor");
+
+function updateBrushCursor(ev) {
+  if (!brushOn) { brushCursor.hidden = true; return; }
+  const stage = $("stage").getBoundingClientRect();
+  const rect = canvas.getBoundingClientRect();
+  // 表示上のブラシ直径 = ブラシサイズ(canvas px) × 表示スケール
+  const dia = (+$("brushsize").value) * rect.width / canvas.width;
+  brushCursor.style.width = dia + "px";
+  brushCursor.style.height = dia + "px";
+  brushCursor.style.left = (ev.clientX - stage.left) + "px";
+  brushCursor.style.top = (ev.clientY - stage.top) + "px";
+  const inside = ev.clientX >= rect.left && ev.clientX <= rect.right &&
+                 ev.clientY >= rect.top && ev.clientY <= rect.bottom;
+  brushCursor.hidden = !inside;
+}
+
 canvas.addEventListener("dragstart", ev => ev.preventDefault());
 canvas.addEventListener("pointerdown", ev => {
   if (!ready) return;
@@ -228,8 +245,11 @@ canvas.addEventListener("pointerdown", ev => {
   ev.preventDefault();
 });
 canvas.addEventListener("pointermove", ev => {
+  updateBrushCursor(ev);
   if (painting && brushOn) { paintAt(ev); ev.preventDefault(); }
 });
+canvas.addEventListener("pointerenter", updateBrushCursor);
+canvas.addEventListener("pointerout", () => { brushCursor.hidden = true; });
 function endPointer() {
   painting = false;
   if (holdCompare) {
@@ -266,10 +286,19 @@ function paintAt(ev) {
 $("brushbtn").addEventListener("click", () => {
   brushOn = !brushOn;
   $("brushbtn").classList.toggle("active", brushOn);
-  canvas.style.cursor = brushOn ? "crosshair" : "default";
+  canvas.style.cursor = brushOn ? "none" : "";   // ブラシ中はOSカーソルを消して円を表示
+  if (!brushOn) brushCursor.hidden = true;
   $("hint").textContent = brushOn ? "🖌 なぞった場所は変換されません" : "🖐 画像を長押しで元画像と比較";
   if (brushOn && !showProtect) toggleShowProtect();
   queueRender();
+});
+$("brushsize").addEventListener("input", () => {
+  if (!brushCursor.hidden) {
+    const rect = canvas.getBoundingClientRect();
+    const dia = (+$("brushsize").value) * rect.width / canvas.width;
+    brushCursor.style.width = dia + "px";
+    brushCursor.style.height = dia + "px";
+  }
 });
 function toggleShowProtect() {
   showProtect = !showProtect;
@@ -327,6 +356,10 @@ $("reset").addEventListener("click", () => {
   view.hidden = true; setup.hidden = false;
   orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
   ready = false;
+  brushOn = false;
+  $("brushbtn").classList.remove("active");
+  canvas.style.cursor = "";
+  brushCursor.hidden = true;
   setStatus("");
   fileIn.value = "";
 });
