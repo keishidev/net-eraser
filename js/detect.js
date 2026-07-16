@@ -225,7 +225,8 @@ function applyProtections(mask, thin, midData, smallW, smallH, P) {
   const sS = smallW / 6000;
   const areaS = v => Math.max(4, Math.round(v * sS * sS));
   const thinD = new cv.Mat();
-  cv.dilate(thin, thinD, ell(Math.max(3, Math.round(17 * sS / (2048 / 6000)))));
+  // 17pxフル解像度相当を small スケールへ (1600/6000 ≒ 0.27 → 5px)
+  cv.dilate(thin, thinD, ell(Math.max(3, Math.round(17 * sS))));
   const sel = new cv.Mat();
   for (let i = 1; i < np_; i++) {
     const a = ps.intAt(i, 4);
