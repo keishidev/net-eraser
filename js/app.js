@@ -25,9 +25,30 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=10");
+  if (!worker) worker = new Worker("js/worker.js?v=11");
   return worker;
 }
+
+/* ===== 起動時GPUチェック ===== */
+(async () => {
+  const el = $("gpustatus");
+  try {
+    if (!navigator.gpu) throw new Error("no webgpu");
+    const ad = await navigator.gpu.requestAdapter();
+    if (!ad) throw new Error("no adapter");
+    const info = ad.info || {};
+    const name = [info.description, info.device, info.vendor, info.architecture]
+      .filter(v => v && String(v).trim()).map(String)[0] || "";
+    el.textContent = `✅ WebGPU 利用可能${name ? " — " + name : ""}（高速処理OK）`;
+    el.className = "gpustatus ok";
+  } catch (_) {
+    el.textContent = "⚠️ WebGPUが使えないため CPU(WASM) で動作します。高品質LaMaは非常に遅くなるので「標準 MI-GAN」推奨";
+    el.className = "gpustatus warn";
+    // 非対応環境では標準モデルを既定に
+    const mg = document.querySelector('input[name=model][value=migan]');
+    if (mg) mg.checked = true;
+  }
+})();
 
 /* ===== ファイル受け付け ===== */
 drop.addEventListener("click", () => fileIn.click());

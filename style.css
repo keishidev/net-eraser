@@ -44,6 +44,14 @@ main { flex: 1; display: flex; flex-direction: column; align-items: center;
   border-color: #4d8bff; background: #1c3866; box-shadow: 0 0 0 1px #4d8bff inset;
 }
 .status { text-align: center; color: #9fb0cc; font-size: 13px; margin-top: 14px; min-height: 18px; }
+.gpustatus {
+  text-align: center; font-size: 12.5px; margin-top: 16px;
+  padding: 7px 14px; border-radius: 20px; width: fit-content;
+  margin-left: auto; margin-right: auto;
+  background: rgba(255,255,255,.04); border: 1px solid #34415f; color: #9fb0cc;
+}
+.gpustatus.ok { border-color: #2e7d4f; color: #8fe0b0; background: rgba(46,125,79,.12); }
+.gpustatus.warn { border-color: #8a6d2f; color: #ffd479; background: rgba(138,109,47,.12); }
 
 /* ===== 編集画面 ===== */
 #view { width: 100%; display: flex; flex-direction: column; align-items: center; }
