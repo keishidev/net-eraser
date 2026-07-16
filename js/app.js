@@ -13,6 +13,7 @@ let alphaMap = null;   // Float32Array 0..1
 let W = 0, H = 0;
 let dispScale = 1;
 let origDisp = null, resultDisp = null, alphaDisp = null;
+let protectDisp = null;  // 保護ブラシ(表示解像度, 0..1)
 let worker = null;
 let busy = false;
 
@@ -52,6 +53,17 @@ async function handleFile(file) {
     cx.drawImage(img, 0, 0);
     const fullData = cx.getImageData(0, 0, W, H);
     orig = fullData.data.slice();               // 手元に保持(転送前にコピー)
+
+    // 開発用: ?fake=1 で推論をスキップ(UI/ブラシの高速検証)
+    if (location.search.includes("fake=1")) {
+      result = orig.slice();
+      alphaMap = new Float32Array(W * H);
+      buildDisplayCache();
+      setup.hidden = true; view.hidden = false;
+      render(); setStatus("FAKEモード(推論なし)");
+      busy = false;
+      return;
+    }
 
     const smallData = scaleImageData(img, Math.min(1600, W), null);
     const midData = mode === "kirara" ? scaleImageData(img, null, 2048) : null;
@@ -130,6 +142,7 @@ function buildDisplayCache() {
   origDisp = scaleRGBA(orig, W, H, dw, dh);
   resultDisp = scaleRGBA(result, W, H, dw, dh);
   alphaDisp = scaleAlpha(alphaMap, W, H, dw, dh);
+  protectDisp = new Float32Array(dw * dh);
 }
 
 function scaleRGBA(data, w, h, dw, dh) {
@@ -157,18 +170,69 @@ function render() {
   fadeval.textContent = fade.value + "%";
   const dw = canvas.width, dh = canvas.height;
   const out = new Uint8ClampedArray(resultDisp.length);
+  const tint = $("brushmode").checked;   // ブラシ中は保護エリアを赤く可視化
   if ($("showorig").checked) out.set(origDisp);
   else {
     for (let i = 0, p = 0; i < dw * dh; i++, p += 4) {
       const wgt = beta * alphaDisp[i];
-      out[p]     = resultDisp[p]     * (1 - wgt) + origDisp[p]     * wgt;
-      out[p + 1] = resultDisp[p + 1] * (1 - wgt) + origDisp[p + 1] * wgt;
-      out[p + 2] = resultDisp[p + 2] * (1 - wgt) + origDisp[p + 2] * wgt;
-      out[p + 3] = 255;
+      let r = resultDisp[p]     * (1 - wgt) + origDisp[p]     * wgt;
+      let g = resultDisp[p + 1] * (1 - wgt) + origDisp[p + 1] * wgt;
+      let b = resultDisp[p + 2] * (1 - wgt) + origDisp[p + 2] * wgt;
+      const pv = protectDisp[i];
+      if (pv > 0) {   // 保護: 元画像に戻す
+        r = r * (1 - pv) + origDisp[p]     * pv;
+        g = g * (1 - pv) + origDisp[p + 1] * pv;
+        b = b * (1 - pv) + origDisp[p + 2] * pv;
+        if (tint) { r = Math.min(255, r + 70 * pv); b = Math.min(255, b + 20 * pv); }
+      }
+      out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = 255;
     }
   }
   canvas.getContext("2d").putImageData(new ImageData(out, dw, dh), 0, 0);
 }
+
+// ===== 保護ブラシ =====
+let painting = false;
+function paintAt(ev) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
+  const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
+  const r = (+$("brushsize").value) / 2;
+  const dw = canvas.width, dh = canvas.height;
+  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(dw - 1, Math.ceil(cx + r));
+  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(dh - 1, Math.ceil(cy + r));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const d = Math.hypot(x - cx, y - cy);
+      if (d <= r) {
+        const soft = d > r * 0.7 ? (r - d) / (r * 0.3) : 1;  // 縁を柔らかく
+        const i = y * dw + x;
+        if (soft > protectDisp[i]) protectDisp[i] = soft;
+      }
+    }
+  }
+  queueRender();
+}
+canvas.addEventListener("dragstart", ev => ev.preventDefault());
+canvas.addEventListener("pointerdown", ev => {
+  if (!$("brushmode").checked || !protectDisp) return;
+  painting = true;
+  try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+  paintAt(ev);
+  ev.preventDefault();
+});
+canvas.addEventListener("pointermove", ev => {
+  if (painting && $("brushmode").checked) { paintAt(ev); ev.preventDefault(); }
+});
+canvas.addEventListener("pointerup", () => { painting = false; });
+$("brushmode").addEventListener("change", () => {
+  canvas.style.cursor = $("brushmode").checked ? "crosshair" : "default";
+  queueRender();
+});
+$("clearprotect").addEventListener("click", () => {
+  if (protectDisp) protectDisp.fill(0);
+  queueRender();
+});
 
 let renderQueued = false;
 function queueRender() {
@@ -181,13 +245,24 @@ $("showorig").addEventListener("change", queueRender);
 
 $("download").addEventListener("click", () => {
   const beta = (+fade.value) / 100;
+  const dw = canvas.width, dh = canvas.height;
   const out = new Uint8ClampedArray(result.length);
-  for (let i = 0, p = 0; i < W * H; i++, p += 4) {
-    const wgt = beta * alphaMap[i];
-    out[p]     = result[p]     * (1 - wgt) + orig[p]     * wgt;
-    out[p + 1] = result[p + 1] * (1 - wgt) + orig[p + 1] * wgt;
-    out[p + 2] = result[p + 2] * (1 - wgt) + orig[p + 2] * wgt;
-    out[p + 3] = 255;
+  for (let y = 0; y < H; y++) {
+    const py = Math.min(dh - 1, Math.round(y * dispScale));
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x, p = i * 4;
+      const wgt = beta * alphaMap[i];
+      let r = result[p]     * (1 - wgt) + orig[p]     * wgt;
+      let g = result[p + 1] * (1 - wgt) + orig[p + 1] * wgt;
+      let b = result[p + 2] * (1 - wgt) + orig[p + 2] * wgt;
+      const pv = protectDisp[py * dw + Math.min(dw - 1, Math.round(x * dispScale))];
+      if (pv > 0) {   // 保護ブラシ: 元画像へ
+        r = r * (1 - pv) + orig[p]     * pv;
+        g = g * (1 - pv) + orig[p + 1] * pv;
+        b = b * (1 - pv) + orig[p + 2] * pv;
+      }
+      out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = 255;
+    }
   }
   const c = document.createElement("canvas");
   c.width = W; c.height = H;

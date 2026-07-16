@@ -42,7 +42,11 @@
     <div class="toolbar">
       <label>網の濃さ <input type="range" id="fade" min="0" max="100" value="35">
         <span id="fadeval">35%</span></label>
-      <label class="cmp"><input type="checkbox" id="showorig"> 元画像を表示(押している間)</label>
+      <label class="cmp"><input type="checkbox" id="showorig"> 元画像</label>
+      <label class="cmp"><input type="checkbox" id="brushmode"> 🖌保護ブラシ
+        <span class="hint">(塗った所は変換しない)</span></label>
+      <label>サイズ <input type="range" id="brushsize" min="10" max="160" value="50"></label>
+      <button id="clearprotect">保護クリア</button>
       <button id="download">この濃さで保存</button>
       <button id="reset">別の写真</button>
     </div>
