@@ -4,63 +4,80 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ネット消しゴム — 防球ネット除去 (WebGPU)</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <header>
-  <h1>🥎 ネット消しゴム</h1>
-  <p class="sub">防球ネット越しの写真から網を消す・薄くする — 全処理ブラウザ内 (WebGPU)</p>
+  <div class="brand">🥎 <b>ネット消しゴム</b></div>
+  <div class="tagline">防球ネット越しの写真から網を消す・薄くする</div>
+  <div class="privacy">🔒 写真はどこにも送信されません — 全処理があなたのPC内 (WebGPU)</div>
 </header>
 
 <main>
-  <section id="setup" class="card">
-    <div class="row">
-      <label class="mode">
-        <input type="radio" name="mode" value="kirara" checked>
-        キララモード <span class="hint">(口・目・鼻・肉球を自動保護)</span>
-      </label>
-      <label class="mode">
-        <input type="radio" name="mode" value="generic">
-        汎用モード <span class="hint">(保護なし・どんな網写真でも)</span>
-      </label>
-      <label class="mode">品質
-        <select id="model">
-          <option value="lama" selected>高品質 LaMa (198MB)</option>
-          <option value="migan">標準 MI-GAN (27MB・軽い)</option>
-        </select>
-      </label>
-    </div>
+  <!-- ===== 開始画面 ===== -->
+  <section id="setup">
     <div id="drop" class="drop">
-      <p>ここに写真をドラッグ＆ドロップ<br>またはクリックして選択</p>
+      <div class="dropicon">📷</div>
+      <p class="droptitle">写真をドラッグ＆ドロップ</p>
+      <p class="dropsub">またはクリックして選択（JPG / PNG）</p>
       <input type="file" id="file" accept="image/*" hidden>
     </div>
-    <div id="status" class="status">モデル未ロード（初回のみ約27MBをダウンロードします）</div>
-    <progress id="prog" value="0" max="100" hidden></progress>
+    <div class="options">
+      <div class="optgroup">
+        <div class="optlabel">モード</div>
+        <label class="chip"><input type="radio" name="mode" value="kirara" checked>
+          <span>キララ<small>口・目・肉球を保護</small></span></label>
+        <label class="chip"><input type="radio" name="mode" value="generic">
+          <span>汎用<small>どんな網写真でも</small></span></label>
+      </div>
+      <div class="optgroup">
+        <div class="optlabel">品質</div>
+        <label class="chip"><input type="radio" name="model" value="lama" checked>
+          <span>高品質<small>LaMa・初回198MB</small></span></label>
+        <label class="chip"><input type="radio" name="model" value="migan">
+          <span>標準<small>MI-GAN・軽量27MB</small></span></label>
+      </div>
+    </div>
+    <div id="status" class="status"></div>
   </section>
 
-  <section id="view" class="card" hidden>
-    <div class="toolbar">
-      <label>網の濃さ <input type="range" id="fade" min="0" max="100" value="35">
-        <span id="fadeval">35%</span></label>
-      <label class="cmp"><input type="checkbox" id="showorig"> 元画像</label>
-      <button id="brushbtn" class="toolbtn" title="塗った所は変換しない">🖌 保護ブラシ</button>
-      <label class="cmp"><input type="checkbox" id="showprotect" checked> 保護を赤表示</label>
-      <label>サイズ <input type="range" id="brushsize" min="10" max="160" value="50"></label>
-      <button id="clearprotect">保護クリア</button>
-      <button id="download">この濃さで保存</button>
-      <button id="reset">別の写真</button>
-    </div>
-    <div class="canvaswrap">
+  <!-- ===== 編集画面 ===== -->
+  <section id="view" hidden>
+    <div id="stage">
       <canvas id="canvas"></canvas>
+      <div id="overlay" hidden>
+        <div class="ovcard">
+          <div class="spinner"></div>
+          <div id="ovtext">準備中…</div>
+          <progress id="ovbar" value="0" max="100"></progress>
+        </div>
+      </div>
+      <div id="hint" class="hint-chip">🖐 画像を長押しで元画像と比較</div>
     </div>
-    <div id="detail" class="status"></div>
+
+    <div id="controlbar" class="cbar" data-disabled="1">
+      <div class="cgroup grow">
+        <span class="clabel">網の濃さ</span>
+        <input type="range" id="fade" min="0" max="100" value="35">
+        <span id="fadeval" class="cval">35%</span>
+      </div>
+      <div class="csep"></div>
+      <div class="cgroup">
+        <button id="brushbtn" class="tbtn" title="塗った所を変換から除外">🖌 保護ブラシ</button>
+        <input type="range" id="brushsize" min="10" max="160" value="50" title="ブラシサイズ">
+        <button id="showprotectbtn" class="tbtn on" title="保護エリアの赤表示">👁 表示</button>
+        <button id="clearprotect" class="tbtn" title="保護をすべて消す">↺ クリア</button>
+      </div>
+      <div class="csep"></div>
+      <div class="cgroup">
+        <button id="download" class="primary">💾 保存</button>
+        <button id="reset" class="tbtn">🗑 別の写真</button>
+      </div>
+    </div>
+    <div id="detail" class="detail"></div>
   </section>
 </main>
 
-<footer>
-  <p>写真はどこにも送信されません（検出: opencv.js / 補完: MI-GAN ONNX / 実行: あなたのGPU）</p>
-</footer>
-
-<script src="js/app.js"></script>
+<script src="js/app.js?v=9"></script>
 </body>
 </html>

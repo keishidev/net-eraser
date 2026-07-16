@@ -1,34 +1,35 @@
-// app.js — UI専任 (処理はすべて js/worker.js 内で実行 → フリーズしない)
+// app.js — UI専任 (処理は js/worker.js)
+// UX: 読み込んだ瞬間に元画像を表示し、その上に進捗オーバーレイ。
+//     完了後: 濃さスライダー / 長押しで元画像比較 / 保護ブラシ。
 "use strict";
 
 (() => {
 const $ = id => document.getElementById(id);
-const drop = $("drop"), fileIn = $("file"), status = $("status"), prog = $("prog");
+const drop = $("drop"), fileIn = $("file"), status = $("status");
 const view = $("view"), setup = $("setup"), canvas = $("canvas"), detail = $("detail");
+const overlay = $("overlay"), ovtext = $("ovtext"), ovbar = $("ovbar");
 const fade = $("fade"), fadeval = $("fadeval");
 
-let orig = null;       // Uint8ClampedArray RGBA フル
-let result = null;     // 除去後 RGBA
-let alphaMap = null;   // Float32Array 0..1
-let W = 0, H = 0;
-let dispScale = 1;
-let origDisp = null, resultDisp = null, alphaDisp = null;
-let protectDisp = null;  // 保護ブラシ(表示解像度, 0..1)
-let worker = null;
-let busy = false;
+let orig = null, result = null, alphaMap = null;
+let W = 0, H = 0, dispScale = 1;
+let origDisp = null, resultDisp = null, alphaDisp = null, protectDisp = null;
+let worker = null, busy = false, ready = false;
+let brushOn = false, showProtect = true, holdCompare = false;
 
-function setStatus(t, pct) {
-  status.textContent = t;
-  if (pct != null) { prog.hidden = false; prog.value = pct; } else prog.hidden = true;
+function setStatus(t) { status.textContent = t || ""; }
+function setOverlay(show, text, pct) {
+  overlay.hidden = !show;
+  if (text != null) ovtext.textContent = text;
+  if (pct != null) { ovbar.hidden = false; ovbar.value = pct; }
+  else ovbar.hidden = true;
 }
 
 function getWorker() {
-  if (!worker) {
-    worker = new Worker("js/worker.js");
-  }
+  if (!worker) worker = new Worker("js/worker.js?v=9");
   return worker;
 }
 
+/* ===== ファイル受け付け ===== */
 drop.addEventListener("click", () => fileIn.click());
 drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hover"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
@@ -40,28 +41,32 @@ fileIn.addEventListener("change", () => { if (fileIn.files[0]) handleFile(fileIn
 
 async function handleFile(file) {
   if (busy) return;
-  busy = true;
+  busy = true; ready = false;
   try {
     const mode = document.querySelector("input[name=mode]:checked").value;
+    const modelKey = document.querySelector("input[name=model]:checked").value;
     const img = await loadImage(file);
     W = img.width; H = img.height;
-    setStatus(`読み込み完了 ${W}x${H}。処理を開始…`);
 
+    // フル解像度RGBA (JS側のみ)
     const c = document.createElement("canvas");
     c.width = W; c.height = H;
     const cx = c.getContext("2d", { willReadFrequently: true });
     cx.drawImage(img, 0, 0);
     const fullData = cx.getImageData(0, 0, W, H);
-    orig = fullData.data.slice();               // 手元に保持(転送前にコピー)
+    orig = fullData.data.slice();
 
-    // 開発用: ?fake=1 で推論をスキップ(UI/ブラシの高速検証)
+    // すぐに編集画面へ: 元画像を表示して進捗オーバーレイ
+    setup.hidden = true; view.hidden = false;
+    $("controlbar").dataset.disabled = "1";
+    buildOrigOnlyDisplay();
+    setOverlay(true, "準備中…", null);
+
+    // 開発用: ?fake=1 で推論スキップ
     if (location.search.includes("fake=1")) {
       result = orig.slice();
       alphaMap = new Float32Array(W * H);
-      buildDisplayCache();
-      setup.hidden = true; view.hidden = false;
-      render(); setStatus("FAKEモード(推論なし)");
-      busy = false;
+      finishReady({ detMs: 0, inMs: 0, bufMs: 0, sweepMs: 0, ep: "fake" }, 0);
       return;
     }
 
@@ -73,7 +78,7 @@ async function handleFile(file) {
     const done = new Promise((res, rej) => {
       wk.onmessage = ev => {
         const m = ev.data;
-        if (m.type === "progress") setStatus(m.text, m.pct);
+        if (m.type === "progress") setOverlay(true, m.text, m.pct);
         else if (m.type === "done") res(m);
         else if (m.type === "error") rej(new Error(m.message));
       };
@@ -81,8 +86,7 @@ async function handleFile(file) {
     });
     const fullBuf = fullData.data.buffer;
     wk.postMessage({
-      type: "process", W, H, kirara: mode === "kirara",
-      model: document.getElementById("model").value,
+      type: "process", W, H, kirara: mode === "kirara", model: modelKey,
       full: fullBuf,
       small: { buf: smallData.data.buffer, w: smallData.width, h: smallData.height },
       mid: midData ? { buf: midData.data.buffer, w: midData.width, h: midData.height } : null,
@@ -91,23 +95,25 @@ async function handleFile(file) {
     const m = await done;
     result = new Uint8ClampedArray(m.result);
     alphaMap = new Float32Array(m.alpha);
-    const total = ((performance.now() - t0) / 1000).toFixed(1);
-
-    buildDisplayCache();
-    setup.hidden = true; view.hidden = false;
-    render();
-    setStatus("");
-    const s = m.stats;
-    detail.textContent =
-      `合計 ${total}s — 検出 ${(s.detMs / 1000).toFixed(1)}s / インペイント ${(s.inMs / 1000).toFixed(1)}s (${s.ep})` +
-      (s.bufMs ? ` / 再充填 ${(s.bufMs / 1000).toFixed(1)}s` : "") +
-      (s.sweepMs ? ` / スイープ ${(s.sweepMs / 1000).toFixed(1)}s` : "");
+    finishReady(m.stats, (performance.now() - t0) / 1000);
   } catch (e) {
     console.error(e);
-    setStatus("エラー: " + (e.message || String(e)));
-  } finally {
+    setOverlay(true, "エラー: " + (e.message || String(e)), null);
     busy = false;
   }
+}
+
+function finishReady(s, totalSec) {
+  buildDisplayCache();
+  render();
+  setOverlay(false);
+  $("controlbar").dataset.disabled = "0";
+  ready = true; busy = false;
+  detail.textContent = totalSec
+    ? `合計 ${totalSec.toFixed(1)}s — 検出 ${(s.detMs / 1000).toFixed(1)}s / インペイント ${(s.inMs / 1000).toFixed(1)}s (${s.ep})` +
+      (s.bufMs ? ` / 再充填 ${(s.bufMs / 1000).toFixed(1)}s` : "") +
+      (s.sweepMs ? ` / スイープ ${(s.sweepMs / 1000).toFixed(1)}s` : "")
+    : "";
 }
 
 function loadImage(file) {
@@ -134,15 +140,21 @@ function scaleImageData(img, targetW, targetLong) {
   return cx.getImageData(0, 0, w, h);
 }
 
-// ===== 表示・フェード =====
-function buildDisplayCache() {
+/* ===== 表示 ===== */
+function buildOrigOnlyDisplay() {
   dispScale = Math.min(1, 1600 / W);
   const dw = Math.round(W * dispScale), dh = Math.round(H * dispScale);
   canvas.width = dw; canvas.height = dh;
   origDisp = scaleRGBA(orig, W, H, dw, dh);
+  resultDisp = null; alphaDisp = null; protectDisp = new Float32Array(dw * dh);
+  canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(origDisp), dw, dh), 0, 0);
+}
+
+function buildDisplayCache() {
+  const dw = canvas.width, dh = canvas.height;
   resultDisp = scaleRGBA(result, W, H, dw, dh);
   alphaDisp = scaleAlpha(alphaMap, W, H, dw, dh);
-  protectDisp = new Float32Array(dw * dh);
+  if (!protectDisp || protectDisp.length !== dw * dh) protectDisp = new Float32Array(dw * dh);
 }
 
 function scaleRGBA(data, w, h, dw, dh) {
@@ -166,12 +178,12 @@ function scaleAlpha(a, w, h, dw, dh) {
 }
 
 function render() {
+  if (!resultDisp) return;
   const beta = (+fade.value) / 100;
   fadeval.textContent = fade.value + "%";
   const dw = canvas.width, dh = canvas.height;
   const out = new Uint8ClampedArray(resultDisp.length);
-  const tint = $("showprotect").checked; // 保護エリアの赤表示(独立トグル)
-  if ($("showorig").checked) out.set(origDisp);
+  if (holdCompare) out.set(origDisp);
   else {
     for (let i = 0, p = 0; i < dw * dh; i++, p += 4) {
       const wgt = beta * alphaDisp[i];
@@ -179,11 +191,11 @@ function render() {
       let g = resultDisp[p + 1] * (1 - wgt) + origDisp[p + 1] * wgt;
       let b = resultDisp[p + 2] * (1 - wgt) + origDisp[p + 2] * wgt;
       const pv = protectDisp[i];
-      if (pv > 0) {   // 保護: 元画像に戻す
+      if (pv > 0) {
         r = r * (1 - pv) + origDisp[p]     * pv;
         g = g * (1 - pv) + origDisp[p + 1] * pv;
         b = b * (1 - pv) + origDisp[p + 2] * pv;
-        if (tint) { r = Math.min(255, r + 70 * pv); b = Math.min(255, b + 20 * pv); }
+        if (showProtect) { r = Math.min(255, r + 70 * pv); b = Math.min(255, b + 20 * pv); }
       }
       out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = 255;
     }
@@ -191,9 +203,45 @@ function render() {
   canvas.getContext("2d").putImageData(new ImageData(out, dw, dh), 0, 0);
 }
 
-// ===== 保護ブラシ =====
+let renderQueued = false;
+function queueRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); });
+}
+fade.addEventListener("input", queueRender);
+
+/* ===== 長押しで元画像比較 / 保護ブラシ ===== */
 let painting = false;
-let brushOn = false;
+canvas.addEventListener("dragstart", ev => ev.preventDefault());
+canvas.addEventListener("pointerdown", ev => {
+  if (!ready) return;
+  if (brushOn && protectDisp) {
+    painting = true;
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    paintAt(ev);
+  } else {
+    holdCompare = true;   // 長押し比較
+    $("hint").textContent = "🖐 元画像を表示中(離すと戻る)";
+    queueRender();
+  }
+  ev.preventDefault();
+});
+canvas.addEventListener("pointermove", ev => {
+  if (painting && brushOn) { paintAt(ev); ev.preventDefault(); }
+});
+function endPointer() {
+  painting = false;
+  if (holdCompare) {
+    holdCompare = false;
+    $("hint").textContent = "🖐 画像を長押しで元画像と比較";
+    queueRender();
+  }
+}
+canvas.addEventListener("pointerup", endPointer);
+canvas.addEventListener("pointercancel", endPointer);
+canvas.addEventListener("pointerleave", () => { if (holdCompare) endPointer(); });
+
 function paintAt(ev) {
   const rect = canvas.getBoundingClientRect();
   const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
@@ -206,7 +254,7 @@ function paintAt(ev) {
     for (let x = x0; x <= x1; x++) {
       const d = Math.hypot(x - cx, y - cy);
       if (d <= r) {
-        const soft = d > r * 0.7 ? (r - d) / (r * 0.3) : 1;  // 縁を柔らかく
+        const soft = d > r * 0.7 ? (r - d) / (r * 0.3) : 1;
         const i = y * dw + x;
         if (soft > protectDisp[i]) protectDisp[i] = soft;
       }
@@ -214,43 +262,29 @@ function paintAt(ev) {
   }
   queueRender();
 }
-canvas.addEventListener("dragstart", ev => ev.preventDefault());
-canvas.addEventListener("pointerdown", ev => {
-  if (!brushOn || !protectDisp) return;
-  painting = true;
-  try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
-  paintAt(ev);
-  ev.preventDefault();
-});
-canvas.addEventListener("pointermove", ev => {
-  if (painting && brushOn) { paintAt(ev); ev.preventDefault(); }
-});
-canvas.addEventListener("pointerup", () => { painting = false; });
+
 $("brushbtn").addEventListener("click", () => {
   brushOn = !brushOn;
   $("brushbtn").classList.toggle("active", brushOn);
   canvas.style.cursor = brushOn ? "crosshair" : "default";
-  if (brushOn && !$("showprotect").checked) {  // 塗る時は自動で表示ON
-    $("showprotect").checked = true;
-  }
+  $("hint").textContent = brushOn ? "🖌 なぞった場所は変換されません" : "🖐 画像を長押しで元画像と比較";
+  if (brushOn && !showProtect) toggleShowProtect();
   queueRender();
 });
-$("showprotect").addEventListener("change", queueRender);
+function toggleShowProtect() {
+  showProtect = !showProtect;
+  $("showprotectbtn").classList.toggle("on", showProtect);
+  queueRender();
+}
+$("showprotectbtn").addEventListener("click", toggleShowProtect);
 $("clearprotect").addEventListener("click", () => {
   if (protectDisp) protectDisp.fill(0);
   queueRender();
 });
 
-let renderQueued = false;
-function queueRender() {
-  if (renderQueued) return;
-  renderQueued = true;
-  requestAnimationFrame(() => { renderQueued = false; render(); });
-}
-fade.addEventListener("input", queueRender);
-$("showorig").addEventListener("change", queueRender);
-
+/* ===== 保存 / リセット ===== */
 $("download").addEventListener("click", () => {
+  if (!ready) return;
   const beta = (+fade.value) / 100;
   const dw = canvas.width, dh = canvas.height;
   const out = new Uint8ClampedArray(result.length);
@@ -263,7 +297,7 @@ $("download").addEventListener("click", () => {
       let g = result[p + 1] * (1 - wgt) + orig[p + 1] * wgt;
       let b = result[p + 2] * (1 - wgt) + orig[p + 2] * wgt;
       const pv = protectDisp[py * dw + Math.min(dw - 1, Math.round(x * dispScale))];
-      if (pv > 0) {   // 保護ブラシ: 元画像へ
+      if (pv > 0) {
         r = r * (1 - pv) + orig[p]     * pv;
         g = g * (1 - pv) + orig[p + 1] * pv;
         b = b * (1 - pv) + orig[p + 2] * pv;
@@ -274,7 +308,7 @@ $("download").addEventListener("click", () => {
   const c = document.createElement("canvas");
   c.width = W; c.height = H;
   c.getContext("2d").putImageData(new ImageData(out, W, H), 0, 0);
-  setStatus("JPEG生成中…");
+  setOverlay(true, "JPEG生成中…", null);
   c.toBlob(b => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
@@ -282,17 +316,28 @@ $("download").addEventListener("click", () => {
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
-    // 開発用: localhostのdevsaveサーバーが居れば黙ってPOST(無ければ失敗を無視)
     if (location.hostname === "localhost") {
       fetch(`http://localhost:8824/save/${a.download}`, { method: "POST", body: b }).catch(() => {});
     }
-    setStatus("");
+    setOverlay(false);
   }, "image/jpeg", 0.95);
 });
 
 $("reset").addEventListener("click", () => {
   view.hidden = true; setup.hidden = false;
-  orig = result = alphaMap = origDisp = resultDisp = alphaDisp = null;
-  setStatus("別の写真をどうぞ");
+  orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
+  ready = false;
+  setStatus("");
+  fileIn.value = "";
 });
+
+/* デバッグ用フック */
+window.__dbg = () => {
+  const n = 200000;
+  let rd = 0, dd = 0, as = 0;
+  if (result && orig) for (let i = 0; i < n; i++) rd += Math.abs(result[i] - orig[i]);
+  if (resultDisp && origDisp) for (let i = 0; i < n; i++) dd += Math.abs(resultDisp[i] - origDisp[i]);
+  if (alphaMap) for (let i = 0; i < n; i++) as += alphaMap[i];
+  return { resultVsOrig: rd, dispVsOrig: dd, alphaSum: Math.round(as), fade: fade.value, ready };
+};
 })();

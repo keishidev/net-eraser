@@ -1,39 +1,115 @@
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
 body {
-  margin: 0; font-family: "Hiragino Sans", "Yu Gothic UI", sans-serif;
-  background: #10141c; color: #e8ecf4;
+  margin: 0; font-family: "Hiragino Sans", "Yu Gothic UI", "Segoe UI", sans-serif;
+  background: radial-gradient(1200px 600px at 50% -100px, #1c2740 0%, #0e1320 55%);
+  color: #e8ecf4;
+  display: flex; flex-direction: column;
 }
-header { text-align: center; padding: 24px 12px 8px; }
-header h1 { margin: 0; font-size: 26px; }
-.sub { color: #9aa7bd; margin: 6px 0 0; font-size: 13px; }
-main { max-width: 1100px; margin: 0 auto; padding: 12px; }
-.card {
-  background: #1a2130; border: 1px solid #2a3550; border-radius: 14px;
-  padding: 18px; margin-bottom: 16px;
-}
-.row { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; }
-.mode { cursor: pointer; }
-.hint { color: #8b98b0; font-size: 12px; }
+
+/* ===== ヘッダー ===== */
+header { text-align: center; padding: 18px 12px 6px; }
+.brand { font-size: 22px; letter-spacing: .5px; }
+.tagline { color: #9aa7bd; font-size: 13px; margin-top: 4px; }
+.privacy { color: #6f8659; color: #7fae6d; font-size: 11.5px; margin-top: 6px; }
+
+main { flex: 1; display: flex; flex-direction: column; align-items: center;
+       width: 100%; max-width: 1500px; margin: 0 auto; padding: 10px 16px 18px; }
+
+/* ===== 開始画面 ===== */
+#setup { width: 100%; max-width: 720px; margin-top: 4vh; }
 .drop {
-  border: 2px dashed #3b4a6b; border-radius: 12px; padding: 42px 12px;
-  text-align: center; color: #aab6cc; cursor: pointer; transition: .15s;
+  border: 2px dashed #3b4a6b; border-radius: 18px; padding: 46px 16px;
+  text-align: center; cursor: pointer; transition: .18s;
+  background: rgba(255,255,255,.02);
 }
-.drop.hover, .drop:hover { border-color: #6ea8fe; color: #dfe8ff; background: #1e2740; }
-.status { color: #9fb0cc; font-size: 13px; margin-top: 10px; min-height: 18px; }
-progress { width: 100%; margin-top: 8px; }
-.toolbar {
-  display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 12px;
+.drop.hover, .drop:hover { border-color: #6ea8fe; background: #1b2440; transform: translateY(-1px); }
+.dropicon { font-size: 44px; }
+.droptitle { font-size: 18px; margin: 10px 0 2px; color: #dfe8ff; }
+.dropsub { color: #8b98b0; font-size: 13px; margin: 0; }
+
+.options { display: flex; gap: 26px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+.optgroup { display: flex; gap: 8px; align-items: center; }
+.optlabel { color: #8b98b0; font-size: 12.5px; margin-right: 2px; }
+.chip input { display: none; }
+.chip span {
+  display: inline-flex; flex-direction: column; align-items: flex-start;
+  border: 1px solid #34415f; border-radius: 12px; padding: 7px 14px;
+  cursor: pointer; transition: .15s; line-height: 1.25; font-size: 14px;
+  background: rgba(255,255,255,.02);
 }
-.toolbar label { font-size: 14px; }
-.toolbar input[type=range] { vertical-align: middle; width: 180px; }
+.chip small { color: #8b98b0; font-size: 10.5px; }
+.chip input:checked + span {
+  border-color: #4d8bff; background: #1c3866; box-shadow: 0 0 0 1px #4d8bff inset;
+}
+.status { text-align: center; color: #9fb0cc; font-size: 13px; margin-top: 14px; min-height: 18px; }
+
+/* ===== 編集画面 ===== */
+#view { width: 100%; display: flex; flex-direction: column; align-items: center; }
+#stage {
+  position: relative; width: 100%;
+  display: flex; justify-content: center; align-items: center;
+  background: #05070c; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 6px 30px rgba(0,0,0,.45);
+}
+canvas {
+  display: block; max-width: 100%; max-height: calc(100vh - 240px);
+  width: auto; height: auto;
+  touch-action: none; user-select: none; -webkit-user-drag: none;
+}
+
+/* 進捗オーバーレイ */
+#overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(5,8,14,.55); backdrop-filter: blur(3px);
+}
+.ovcard {
+  background: #141b2c; border: 1px solid #2a3550; border-radius: 14px;
+  padding: 22px 30px; text-align: center; min-width: 320px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.5);
+}
+.spinner {
+  width: 34px; height: 34px; margin: 0 auto 12px;
+  border: 3px solid #2a3550; border-top-color: #6ea8fe; border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#ovtext { font-size: 13.5px; color: #c9d4ea; margin-bottom: 10px; min-height: 18px; }
+#ovbar { width: 100%; height: 6px; border-radius: 3px; }
+
+.hint-chip {
+  position: absolute; left: 12px; bottom: 12px;
+  background: rgba(10,14,24,.72); border: 1px solid #2a3550;
+  color: #aab8d4; font-size: 11.5px; padding: 5px 10px; border-radius: 20px;
+  pointer-events: none; backdrop-filter: blur(2px);
+}
+
+/* コントロールバー */
+.cbar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: center;
+  background: #161d2e; border: 1px solid #2a3550; border-radius: 14px;
+  padding: 10px 16px; margin-top: 12px; width: fit-content; max-width: 100%;
+  box-shadow: 0 4px 18px rgba(0,0,0,.35);
+}
+.cbar[data-disabled="1"] { opacity: .45; pointer-events: none; }
+.cgroup { display: flex; align-items: center; gap: 9px; }
+.cgroup.grow input[type=range] { width: 200px; }
+.clabel { color: #9fb0cc; font-size: 13px; white-space: nowrap; }
+.cval { font-size: 13px; min-width: 40px; color: #dfe8ff; }
+.csep { width: 1px; height: 26px; background: #2a3550; }
+input[type=range] { accent-color: #4d8bff; }
+#brushsize { width: 90px; }
+
 button {
-  background: #2f6fed; border: 0; color: #fff; border-radius: 8px;
-  padding: 8px 16px; font-size: 14px; cursor: pointer;
+  border: 0; border-radius: 9px; padding: 8px 14px; font-size: 13.5px;
+  cursor: pointer; color: #e8ecf4; background: #2b3550;
+  transition: .13s;
 }
-button:hover { background: #4b83f2; }
-#reset { background: #38445e; }
-.toolbtn { background: #38445e; }
-.toolbtn.active { background: #d84a68; box-shadow: 0 0 0 2px #ff8aa0 inset; }
-.canvaswrap { overflow: auto; max-height: 78vh; border-radius: 8px; }
-canvas { max-width: 100%; display: block; touch-action: none; user-select: none; -webkit-user-drag: none; }
-footer { text-align: center; color: #6c788f; font-size: 12px; padding: 14px; }
+button:hover { filter: brightness(1.18); }
+.primary { background: #2f6fed; font-weight: 600; }
+.tbtn { background: #2b3550; }
+.tbtn.active { background: #d84a68; box-shadow: 0 0 0 2px #ff8aa0 inset; }
+.tbtn.on { box-shadow: 0 0 0 1.5px #4d8bff inset; }
+
+.detail { color: #6f7d99; font-size: 11.5px; margin-top: 8px; text-align: center; }
