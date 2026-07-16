@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ネット消しゴム — 防球ネット除去 (WebGPU)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>🥎 ネット消しゴム</h1>
+  <p class="sub">防球ネット越しの写真から網を消す・薄くする — 全処理ブラウザ内 (WebGPU)</p>
+</header>
+
+<main>
+  <section id="setup" class="card">
+    <div class="row">
+      <label class="mode">
+        <input type="radio" name="mode" value="kirara" checked>
+        キララモード <span class="hint">(口・目・鼻・肉球を自動保護)</span>
+      </label>
+      <label class="mode">
+        <input type="radio" name="mode" value="generic">
+        汎用モード <span class="hint">(保護なし・どんな網写真でも)</span>
+      </label>
+    </div>
+    <div id="drop" class="drop">
+      <p>ここに写真をドラッグ＆ドロップ<br>またはクリックして選択</p>
+      <input type="file" id="file" accept="image/*" hidden>
+    </div>
+    <div id="status" class="status">モデル未ロード（初回のみ約27MBをダウンロードします）</div>
+    <progress id="prog" value="0" max="100" hidden></progress>
+  </section>
+
+  <section id="view" class="card" hidden>
+    <div class="toolbar">
+      <label>網の濃さ <input type="range" id="fade" min="0" max="100" value="35">
+        <span id="fadeval">35%</span></label>
+      <label class="cmp"><input type="checkbox" id="showorig"> 元画像を表示(押している間)</label>
+      <button id="download">この濃さで保存</button>
+      <button id="reset">別の写真</button>
+    </div>
+    <div class="canvaswrap">
+      <canvas id="canvas"></canvas>
+    </div>
+    <div id="detail" class="status"></div>
+  </section>
+</main>
+
+<footer>
+  <p>写真はどこにも送信されません（検出: opencv.js / 補完: MI-GAN ONNX / 実行: あなたのGPU）</p>
+</footer>
+
+<script src="js/app.js"></script>
+</body>
+</html>
