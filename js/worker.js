@@ -6,6 +6,8 @@ importScripts("../vendor/opencv.js");
 importScripts("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.webgpu.min.js");
 importScripts("detect.js");
 importScripts("inpaint.js");
+// worker内ではwasmバイナリの相対解決が壊れるためCDNを明示
+ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/";
 
 const cvReady = new Promise(res => {
   if (typeof cv !== "undefined" && cv.Mat) res();
