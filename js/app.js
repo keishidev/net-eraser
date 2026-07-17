@@ -12,9 +12,11 @@ const fade = $("fade"), fadeval = $("fadeval");
 
 let orig = null, result = null, alphaMap = null;
 let W = 0, H = 0, dispScale = 1;
-let origDisp = null, resultDisp = null, alphaDisp = null, protectDisp = null;
+let origDisp = null, resultDisp = null, alphaDisp = null;
+let protectDisp = null, eraseDisp = null;   // 保護(赤) / 消し指定(緑・適用前)
 let worker = null, busy = false, ready = false;
-let brushOn = false, showProtect = true, showMask = false, holdCompare = false;
+let brushMode = "none";                     // "none" | "protect" | "erase"
+let showProtect = true, showMask = false, holdCompare = false;
 
 function setStatus(t) { status.textContent = t || ""; }
 function setOverlay(show, text, pct) {
@@ -25,7 +27,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=13");
+  if (!worker) worker = new Worker("js/worker.js?v=14");
   return worker;
 }
 
@@ -170,7 +172,9 @@ function buildOrigOnlyDisplay() {
   const dw = Math.round(W * dispScale), dh = Math.round(H * dispScale);
   canvas.width = dw; canvas.height = dh;
   origDisp = scaleRGBA(orig, W, H, dw, dh);
-  resultDisp = null; alphaDisp = null; protectDisp = new Float32Array(dw * dh);
+  resultDisp = null; alphaDisp = null;
+  protectDisp = new Float32Array(dw * dh);
+  eraseDisp = new Float32Array(dw * dh);
   canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(origDisp), dw, dh), 0, 0);
 }
 
@@ -219,8 +223,13 @@ function render() {
         g = Math.min(255, g + 34 * a);
         b = Math.min(255, b + 95 * a);
       }
+      const ev = eraseDisp[i];
+      if (ev > 0) {                 // 🧽 消し指定(適用前)は緑
+        g = Math.min(255, g + 85 * ev);
+        r = r * (1 - 0.15 * ev);
+      }
       const pv = protectDisp[i];
-      if (pv > 0) {
+      if (pv > 0) {                 // 🖌 保護(最優先)
         r = r * (1 - pv) + origDisp[p]     * pv;
         g = g * (1 - pv) + origDisp[p + 1] * pv;
         b = b * (1 - pv) + origDisp[p + 2] * pv;
@@ -245,7 +254,8 @@ let painting = false;
 const brushCursor = $("brushcursor");
 
 function updateBrushCursor(ev) {
-  if (!brushOn) { brushCursor.hidden = true; return; }
+  if (brushMode === "none") { brushCursor.hidden = true; return; }
+  brushCursor.style.borderColor = brushMode === "erase" ? "#7fe08f" : "#ff8aa0";
   const stage = $("stage").getBoundingClientRect();
   const rect = canvas.getBoundingClientRect();
   // 表示上のブラシ直径 = ブラシサイズ(canvas px) × 表示スケール
@@ -262,7 +272,7 @@ function updateBrushCursor(ev) {
 canvas.addEventListener("dragstart", ev => ev.preventDefault());
 canvas.addEventListener("pointerdown", ev => {
   if (!ready) return;
-  if (brushOn && protectDisp) {
+  if (brushMode !== "none" && protectDisp) {
     painting = true;
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
     paintAt(ev);
@@ -275,7 +285,7 @@ canvas.addEventListener("pointerdown", ev => {
 });
 canvas.addEventListener("pointermove", ev => {
   updateBrushCursor(ev);
-  if (painting && brushOn) { paintAt(ev); ev.preventDefault(); }
+  if (painting && brushMode !== "none") { paintAt(ev); ev.preventDefault(); }
 });
 canvas.addEventListener("pointerenter", updateBrushCursor);
 canvas.addEventListener("pointerout", () => { brushCursor.hidden = true; });
@@ -292,6 +302,8 @@ canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", () => { if (holdCompare) endPointer(); });
 
 function paintAt(ev) {
+  const layer = brushMode === "erase" ? eraseDisp : protectDisp;
+  if (!layer) return;
   const rect = canvas.getBoundingClientRect();
   const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
   const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
@@ -305,21 +317,83 @@ function paintAt(ev) {
       if (d <= r) {
         const soft = d > r * 0.7 ? (r - d) / (r * 0.3) : 1;
         const i = y * dw + x;
-        if (soft > protectDisp[i]) protectDisp[i] = soft;
+        if (soft > layer[i]) layer[i] = soft;
       }
     }
   }
+  if (brushMode === "erase") $("applyerase").hidden = false;
   queueRender();
 }
 
-$("brushbtn").addEventListener("click", () => {
-  brushOn = !brushOn;
-  $("brushbtn").classList.toggle("active", brushOn);
-  canvas.style.cursor = brushOn ? "none" : "";   // ブラシ中はOSカーソルを消して円を表示
-  if (!brushOn) brushCursor.hidden = true;
-  $("hint").textContent = brushOn ? "🖌 なぞった場所は変換されません" : "🖐 画像を長押しで元画像と比較";
-  if (brushOn && !showProtect) toggleShowProtect();
+function setBrushMode(mode) {
+  brushMode = (brushMode === mode) ? "none" : mode;   // 同じボタン再押しで解除
+  $("brushbtn").classList.toggle("active", brushMode === "protect");
+  $("erasebtn").classList.toggle("active", brushMode === "erase");
+  canvas.style.cursor = brushMode !== "none" ? "none" : "";
+  if (brushMode === "none") brushCursor.hidden = true;
+  $("hint").textContent =
+    brushMode === "protect" ? "🖌 なぞった場所は変換されません(赤)" :
+    brushMode === "erase"   ? "🧽 なぞった場所も消します(緑) → ✨消しを適用" :
+    "🖐 画像を押している間、元の写真が見えます";
+  if (brushMode === "protect" && !showProtect) toggleShowProtect();
   queueRender();
+}
+$("brushbtn").addEventListener("click", () => setBrushMode("protect"));
+$("erasebtn").addEventListener("click", () => setBrushMode("erase"));
+
+/* ===== 消しブラシの適用: workerで追加インペイント ===== */
+$("applyerase").addEventListener("click", async () => {
+  if (!ready || busy) return;
+  const dw = canvas.width, dh = canvas.height;
+  const maskFull = new Uint8Array(W * H);
+  let cnt = 0;
+  for (let y = 0; y < H; y++) {
+    const py = Math.min(dh - 1, Math.round(y * dispScale));
+    for (let x = 0; x < W; x++) {
+      const di = py * dw + Math.min(dw - 1, Math.round(x * dispScale));
+      if (eraseDisp[di] > 0.25 && !(protectDisp[di] > 0.3)) {
+        maskFull[y * W + x] = 255; cnt++;
+      }
+    }
+  }
+  if (!cnt) { $("applyerase").hidden = true; return; }
+  busy = true;
+  $("controlbar").dataset.disabled = "1";
+  setOverlay(true, "指定された場所を消しています…", null);
+  try {
+    const wk = getWorker();
+    const done = new Promise((res, rej) => {
+      wk.onmessage = ev => {
+        const m = ev.data;
+        if (m.type === "progress") setOverlay(true, m.text, m.pct);
+        else if (m.type === "moreDone") res(m);
+        else if (m.type === "error") rej(new Error(m.message));
+      };
+      wk.onerror = ev => rej(new Error(ev.message || "worker error"));
+    });
+    const resBuf = result.slice().buffer;   // コピーを転送(手元は保持)
+    const mBuf = maskFull.buffer;
+    wk.postMessage({
+      type: "more", W, H,
+      model: document.querySelector("input[name=model]:checked").value,
+      result: resBuf, mask: mBuf,
+    }, [resBuf, mBuf]);
+    const m = await done;
+    result = new Uint8ClampedArray(m.result);
+    const alphaDelta = new Float32Array(m.alpha);
+    for (let i = 0; i < alphaMap.length; i++)
+      if (alphaDelta[i] > alphaMap[i]) alphaMap[i] = alphaDelta[i];
+    eraseDisp.fill(0);
+    $("applyerase").hidden = true;
+    buildDisplayCache();
+    render();
+    setOverlay(false);
+    $("controlbar").dataset.disabled = "0";
+  } catch (e) {
+    console.error(e);
+    setOverlay(true, "エラー: " + (e.message || String(e)), null);
+  }
+  busy = false;
 });
 $("brushsize").addEventListener("input", () => {
   if (!brushCursor.hidden) {
@@ -340,11 +414,18 @@ $("showmaskbtn").addEventListener("click", () => {
   $("showmaskbtn").classList.toggle("on", showMask);
   $("hint").textContent = showMask
     ? "🔵 青 = AIが修正した場所 ／ 🔴 赤 = 保護した場所"
-    : (brushOn ? "🖌 なぞった場所は変換されません" : "🖐 画像を押している間、元の写真が見えます");
+    : (brushMode !== "none" ? "🖌 ブラシでなぞってください" : "🖐 画像を押している間、元の写真が見えます");
   queueRender();
 });
 $("clearprotect").addEventListener("click", () => {
-  if (protectDisp) protectDisp.fill(0);
+  // 選択中ブラシのレイヤーを消す(未選択なら両方)
+  if (brushMode === "erase") { eraseDisp && eraseDisp.fill(0); $("applyerase").hidden = true; }
+  else if (brushMode === "protect") { protectDisp && protectDisp.fill(0); }
+  else {
+    protectDisp && protectDisp.fill(0);
+    eraseDisp && eraseDisp.fill(0);
+    $("applyerase").hidden = true;
+  }
   queueRender();
 });
 
@@ -393,8 +474,10 @@ $("reset").addEventListener("click", () => {
   view.hidden = true; setup.hidden = false;
   orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
   ready = false;
-  brushOn = false;
+  brushMode = "none";
   $("brushbtn").classList.remove("active");
+  $("erasebtn").classList.remove("active");
+  $("applyerase").hidden = true;
   canvas.style.cursor = "";
   brushCursor.hidden = true;
   setStatus("");

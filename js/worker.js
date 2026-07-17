@@ -65,6 +65,31 @@ function downsampleRGBA(rgba, W, H, tw) {
   return new ImageData(out, tw, th);
 }
 
+// 消しブラシの追加インペイント(結果画像に対してユーザー指定マスクを消す)
+async function handleMore(msg) {
+  try {
+    await cvReady;
+    const { W, H } = msg;
+    const cur = new Uint8ClampedArray(msg.result);
+    const maskData = new Uint8Array(msg.mask);
+    await Inpaint.loadModel(msg.model || "migan", (t, p) => progress(t, p));
+    const out = await Inpaint.inpaint(cur, maskData, W, H,
+      (t, p) => progress(t, p), "指定された場所を消しています");
+    // αデルタ(フェザー付き)
+    const sw = 1600, sh = Math.round(H * sw / W);
+    const mSmall = cv.matFromArray(sh, sw, cv.CV_8U, maskFullToSmall(maskData, W, H, sw, sh));
+    const mF = new cv.Mat();
+    mSmall.convertTo(mF, cv.CV_32F, 1 / 255.0);
+    cv.GaussianBlur(mF, mF, new cv.Size(0, 0), 2);
+    const alpha = upscaleFloatBilinear(mF, W, H);
+    mSmall.delete(); mF.delete();
+    const ob = out.buffer, ab = alpha.buffer;
+    post("moreDone", { result: ob, alpha: ab }, [ob, ab]);
+  } catch (err) {
+    post("error", { message: (err && err.message) || String(err) });
+  }
+}
+
 function maskFullToSmall(maskData, W, H, mw, mh) {
   const out = new Uint8Array(mw * mh);
   for (let y = 0; y < mh; y++) {
@@ -79,6 +104,7 @@ function maskFullToSmall(maskData, W, H, mw, mh) {
 
 self.onmessage = async (e) => {
   const msg = e.data;
+  if (msg.type === "more") return handleMore(msg);
   if (msg.type !== "process") return;
   try {
     await cvReady;
