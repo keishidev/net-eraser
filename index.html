@@ -6,7 +6,7 @@
 <title>ネット消しゴム | 防球ネット越しの写真をきれいに</title>
 <meta name="description" content="球場の防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできる無料ツール。写真はアップロードされず、すべてブラウザ内で処理されます。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥎</text></svg>">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <header>
@@ -70,29 +70,37 @@
       <div id="hint" class="hint-chip">🖐 画像を押している間、元の写真が見えます</div>
     </div>
 
+    <div id="flowguide" class="flowguide" hidden>
+      <span>1. 自動でネットを消しました → 2. 気になる所は 🖌保護 / 🧽消し で手直し → 3. 濃さを決めて 💾保存</span>
+      <button id="flowclose" title="閉じる">×</button>
+    </div>
+
     <div id="controlbar" class="cbar" data-disabled="1">
       <div class="cgroup grow">
         <span class="clabel">ネットの濃さ</span>
-        <input type="range" id="fade" min="0" max="100" value="35">
+        <span class="polarity">完全に消す</span>
+        <input type="range" id="fade" min="0" max="100" value="35" aria-label="ネットの濃さ (0=完全に消す, 100=元のまま)">
+        <span class="polarity">元のまま</span>
         <span id="fadeval" class="cval">35%</span>
       </div>
       <div class="csep"></div>
       <div class="cgroup">
         <span class="glabel">表示</span>
-        <button id="showmaskbtn" class="vtoggle blue" title="AIが修正した場所を青く表示">🔵 AI修正</button>
-        <button id="showprotectbtn" class="vtoggle red pressed" title="保護した場所を赤く表示">🔴 保護</button>
+        <button id="showmaskbtn" class="vtoggle blue" aria-pressed="false" title="AIが修正した場所を青く表示"><span class="sw"></span>修正箇所</button>
+        <button id="showprotectbtn" class="vtoggle red pressed" aria-pressed="true" title="保護した場所を赤く表示"><span class="sw"></span>保護箇所</button>
       </div>
       <div class="csep"></div>
       <div class="cgroup">
         <span class="glabel">ツール</span>
         <div class="seg">
-          <button id="viewtool" class="segbtn pressed" title="画像を押している間、元の写真と比較">🖐 比較</button>
-          <button id="brushbtn" class="segbtn pink" title="なぞった場所を守る(変換しない)">🖌 保護</button>
-          <button id="erasebtn" class="segbtn green" title="なぞった場所も追加で消す">🧽 消し</button>
+          <button id="viewtool" class="segbtn pressed" aria-pressed="true" title="画像を押している間、元の写真と比較">🖐 比較</button>
+          <button id="brushbtn" class="segbtn pink" aria-pressed="false" title="なぞった場所を守る(変換しない)">🖌 保護</button>
+          <button id="erasebtn" class="segbtn green" aria-pressed="false" title="なぞった場所も追加で消す">🧽 消し</button>
         </div>
-        <input type="range" id="brushsize" min="10" max="160" value="50" title="ブラシの大きさ">
-        <button id="applyerase" class="applybtn" disabled title="緑でなぞった場所をAIで消します">✨ 適用</button>
-        <button id="clearprotect" class="tbtn" title="いま選んでいるツールの塗りを取り消す">↺</button>
+        <span class="glabel">太さ</span>
+        <input type="range" id="brushsize" min="10" max="160" value="50" disabled aria-label="ブラシの太さ" title="ブラシの大きさ">
+        <button id="applyerase" class="applybtn" disabled title="先に🧽消しツールで場所をなぞってください">✨ なぞった所を消す</button>
+        <button id="clearprotect" class="tbtn" title="いま選んでいるツールの塗りを取り消す">↺ 塗りを消す</button>
       </div>
       <div class="csep"></div>
       <div class="cgroup">
@@ -109,8 +117,8 @@
   <span id="userchip" hidden></span>
 </footer>
 
-<script src="js/config.js?v=16"></script>
-<script src="js/auth.js?v=16"></script>
-<script src="js/app.js?v=16"></script>
+<script src="js/config.js?v=18"></script>
+<script src="js/auth.js?v=18"></script>
+<script src="js/app.js?v=18"></script>
 </body>
 </html>

@@ -27,7 +27,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=16");
+  if (!worker) worker = new Worker("js/worker.js?v=18");
   return worker;
 }
 
@@ -148,6 +148,7 @@ function finishReady(s, totalSec) {
   setOverlay(false);
   $("controlbar").dataset.disabled = "0";
   ready = true; busy = false;
+  if (!localStorage.getItem("flowguide_done")) $("flowguide").hidden = false;
   const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep;
   detail.textContent = totalSec
     ? `処理時間 ${totalSec.toFixed(1)}秒（検出 ${(s.detMs / 1000).toFixed(1)}s・ネット消し ${(s.inMs / 1000).toFixed(1)}s` +
@@ -336,8 +337,15 @@ function paintAt(ev) {
       }
     }
   }
-  if (brushMode === "erase") $("applyerase").disabled = false;
+  if (brushMode === "erase") setApplyEnabled(true);
   queueRender();
+}
+
+// ✨ボタンの有効/無効とtitleをまとめて切替
+function setApplyEnabled(on) {
+  const b = $("applyerase");
+  b.disabled = !on;
+  b.title = on ? "緑でなぞった場所をAIで消します" : "先に🧽消しツールで場所をなぞってください";
 }
 
 function setBrushMode(mode) {
@@ -345,6 +353,10 @@ function setBrushMode(mode) {
   $("viewtool").classList.toggle("pressed", brushMode === "none");
   $("brushbtn").classList.toggle("pressed", brushMode === "protect");
   $("erasebtn").classList.toggle("pressed", brushMode === "erase");
+  $("viewtool").setAttribute("aria-pressed", String(brushMode === "none"));
+  $("brushbtn").setAttribute("aria-pressed", String(brushMode === "protect"));
+  $("erasebtn").setAttribute("aria-pressed", String(brushMode === "erase"));
+  $("brushsize").disabled = (brushMode === "none");
   canvas.style.cursor = brushMode !== "none" ? "none" : "";
   if (brushMode === "none") brushCursor.hidden = true;
   $("hint").textContent =
@@ -373,7 +385,7 @@ $("applyerase").addEventListener("click", async () => {
       }
     }
   }
-  if (!cnt) { $("applyerase").disabled = true; return; }
+  if (!cnt) { setApplyEnabled(false); return; }
   busy = true;
   $("controlbar").dataset.disabled = "1";
   setOverlay(true, "指定された場所を消しています…", null);
@@ -401,7 +413,7 @@ $("applyerase").addEventListener("click", async () => {
     for (let i = 0; i < alphaMap.length; i++)
       if (alphaDelta[i] > alphaMap[i]) alphaMap[i] = alphaDelta[i];
     eraseDisp.fill(0);
-    $("applyerase").disabled = true;
+    setApplyEnabled(false);
     buildDisplayCache();
     render();
     setOverlay(false);
@@ -423,12 +435,14 @@ $("brushsize").addEventListener("input", () => {
 function toggleShowProtect() {
   showProtect = !showProtect;
   $("showprotectbtn").classList.toggle("pressed", showProtect);
+  $("showprotectbtn").setAttribute("aria-pressed", String(showProtect));
   queueRender();
 }
 $("showprotectbtn").addEventListener("click", toggleShowProtect);
 $("showmaskbtn").addEventListener("click", () => {
   showMask = !showMask;
   $("showmaskbtn").classList.toggle("pressed", showMask);
+  $("showmaskbtn").setAttribute("aria-pressed", String(showMask));
   $("hint").textContent = showMask
     ? "🔵 青 = AIが修正した場所 ／ 🔴 赤 = 保護した場所"
     : (brushMode !== "none" ? "🖌 ブラシでなぞってください" : "🖐 画像を押している間、元の写真が見えます");
@@ -436,12 +450,12 @@ $("showmaskbtn").addEventListener("click", () => {
 });
 $("clearprotect").addEventListener("click", () => {
   // 選択中ブラシのレイヤーを消す(未選択なら両方)
-  if (brushMode === "erase") { eraseDisp && eraseDisp.fill(0); $("applyerase").disabled = true; }
+  if (brushMode === "erase") { eraseDisp && eraseDisp.fill(0); setApplyEnabled(false); }
   else if (brushMode === "protect") { protectDisp && protectDisp.fill(0); }
   else {
     protectDisp && protectDisp.fill(0);
     eraseDisp && eraseDisp.fill(0);
-    $("applyerase").disabled = true;
+    setApplyEnabled(false);
   }
   queueRender();
 });
@@ -488,6 +502,7 @@ $("download").addEventListener("click", () => {
 });
 
 $("reset").addEventListener("click", () => {
+  if (ready && !window.confirm("編集内容は失われます。別の写真に切り替えますか？")) return;
   view.hidden = true; setup.hidden = false;
   orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
   ready = false;
@@ -495,11 +510,21 @@ $("reset").addEventListener("click", () => {
   $("brushbtn").classList.remove("pressed");
   $("erasebtn").classList.remove("pressed");
   $("viewtool").classList.add("pressed");
-  $("applyerase").disabled = true;
+  $("brushbtn").setAttribute("aria-pressed", "false");
+  $("erasebtn").setAttribute("aria-pressed", "false");
+  $("viewtool").setAttribute("aria-pressed", "true");
+  $("brushsize").disabled = true;
+  setApplyEnabled(false);
   canvas.style.cursor = "";
   brushCursor.hidden = true;
   setStatus("");
   fileIn.value = "";
+});
+
+/* ===== 初回フローガイド ===== */
+$("flowclose").addEventListener("click", () => {
+  $("flowguide").hidden = true;
+  localStorage.setItem("flowguide_done", "1");
 });
 
 /* デバッグ用フック */
