@@ -27,7 +27,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=14");
+  if (!worker) worker = new Worker("js/worker.js?v=16");
   return worker;
 }
 
@@ -53,7 +53,22 @@ function getWorker() {
 })();
 
 /* ===== ファイル受け付け ===== */
-drop.addEventListener("click", () => fileIn.click());
+drop.addEventListener("click", async () => {
+  // Chrome系: ピクチャフォルダから開始(2回目以降は前回の場所を記憶)
+  if (window.showOpenFilePicker) {
+    try {
+      const [h] = await window.showOpenFilePicker({
+        id: "net-eraser",
+        startIn: "pictures",
+        multiple: false,
+        types: [{ description: "画像", accept: { "image/*": [".jpg", ".jpeg", ".png", ".webp"] } }],
+      });
+      handleFile(await h.getFile());
+    } catch (_) { /* キャンセル時は何もしない */ }
+  } else {
+    fileIn.click();   // 非対応ブラウザは従来のダイアログ
+  }
+});
 drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hover"); });
 drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
 drop.addEventListener("drop", e => {
@@ -321,23 +336,25 @@ function paintAt(ev) {
       }
     }
   }
-  if (brushMode === "erase") $("applyerase").hidden = false;
+  if (brushMode === "erase") $("applyerase").disabled = false;
   queueRender();
 }
 
 function setBrushMode(mode) {
-  brushMode = (brushMode === mode) ? "none" : mode;   // 同じボタン再押しで解除
-  $("brushbtn").classList.toggle("active", brushMode === "protect");
-  $("erasebtn").classList.toggle("active", brushMode === "erase");
+  brushMode = mode;   // セグメント型: 常にどれか一つ
+  $("viewtool").classList.toggle("pressed", brushMode === "none");
+  $("brushbtn").classList.toggle("pressed", brushMode === "protect");
+  $("erasebtn").classList.toggle("pressed", brushMode === "erase");
   canvas.style.cursor = brushMode !== "none" ? "none" : "";
   if (brushMode === "none") brushCursor.hidden = true;
   $("hint").textContent =
     brushMode === "protect" ? "🖌 なぞった場所は変換されません(赤)" :
-    brushMode === "erase"   ? "🧽 なぞった場所も消します(緑) → ✨消しを適用" :
+    brushMode === "erase"   ? "🧽 なぞった場所も消します(緑) → ✨適用" :
     "🖐 画像を押している間、元の写真が見えます";
   if (brushMode === "protect" && !showProtect) toggleShowProtect();
   queueRender();
 }
+$("viewtool").addEventListener("click", () => setBrushMode("none"));
 $("brushbtn").addEventListener("click", () => setBrushMode("protect"));
 $("erasebtn").addEventListener("click", () => setBrushMode("erase"));
 
@@ -356,7 +373,7 @@ $("applyerase").addEventListener("click", async () => {
       }
     }
   }
-  if (!cnt) { $("applyerase").hidden = true; return; }
+  if (!cnt) { $("applyerase").disabled = true; return; }
   busy = true;
   $("controlbar").dataset.disabled = "1";
   setOverlay(true, "指定された場所を消しています…", null);
@@ -384,7 +401,7 @@ $("applyerase").addEventListener("click", async () => {
     for (let i = 0; i < alphaMap.length; i++)
       if (alphaDelta[i] > alphaMap[i]) alphaMap[i] = alphaDelta[i];
     eraseDisp.fill(0);
-    $("applyerase").hidden = true;
+    $("applyerase").disabled = true;
     buildDisplayCache();
     render();
     setOverlay(false);
@@ -405,13 +422,13 @@ $("brushsize").addEventListener("input", () => {
 });
 function toggleShowProtect() {
   showProtect = !showProtect;
-  $("showprotectbtn").classList.toggle("on", showProtect);
+  $("showprotectbtn").classList.toggle("pressed", showProtect);
   queueRender();
 }
 $("showprotectbtn").addEventListener("click", toggleShowProtect);
 $("showmaskbtn").addEventListener("click", () => {
   showMask = !showMask;
-  $("showmaskbtn").classList.toggle("on", showMask);
+  $("showmaskbtn").classList.toggle("pressed", showMask);
   $("hint").textContent = showMask
     ? "🔵 青 = AIが修正した場所 ／ 🔴 赤 = 保護した場所"
     : (brushMode !== "none" ? "🖌 ブラシでなぞってください" : "🖐 画像を押している間、元の写真が見えます");
@@ -419,12 +436,12 @@ $("showmaskbtn").addEventListener("click", () => {
 });
 $("clearprotect").addEventListener("click", () => {
   // 選択中ブラシのレイヤーを消す(未選択なら両方)
-  if (brushMode === "erase") { eraseDisp && eraseDisp.fill(0); $("applyerase").hidden = true; }
+  if (brushMode === "erase") { eraseDisp && eraseDisp.fill(0); $("applyerase").disabled = true; }
   else if (brushMode === "protect") { protectDisp && protectDisp.fill(0); }
   else {
     protectDisp && protectDisp.fill(0);
     eraseDisp && eraseDisp.fill(0);
-    $("applyerase").hidden = true;
+    $("applyerase").disabled = true;
   }
   queueRender();
 });
@@ -475,9 +492,10 @@ $("reset").addEventListener("click", () => {
   orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
   ready = false;
   brushMode = "none";
-  $("brushbtn").classList.remove("active");
-  $("erasebtn").classList.remove("active");
-  $("applyerase").hidden = true;
+  $("brushbtn").classList.remove("pressed");
+  $("erasebtn").classList.remove("pressed");
+  $("viewtool").classList.add("pressed");
+  $("applyerase").disabled = true;
   canvas.style.cursor = "";
   brushCursor.hidden = true;
   setStatus("");

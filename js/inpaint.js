@@ -26,7 +26,24 @@ const MODELS = {
 const sessions = {};   // key -> {session, ep}
 let activeKey = "migan";
 
+const MODEL_CACHE = "net-eraser-models-v1";
+
 async function fetchModel(urls, onProgress) {
+  // 1) Cache Storage に保存済みなら即読込(再ダウンロードなし)
+  let cache = null;
+  try { cache = await caches.open(MODEL_CACHE); } catch (_) {}
+  if (cache) {
+    for (const url of urls) {
+      try {
+        const hit = await cache.match(url);
+        if (hit) {
+          onProgress("保存済みのAIモデルを読み込んでいます…", null);
+          return new Uint8Array(await hit.arrayBuffer());
+        }
+      } catch (_) {}
+    }
+  }
+  // 2) ダウンロードして Cache Storage に保存(次回以降は再DLなし)
   let lastErr = null;
   for (const url of urls) {
     try {
@@ -43,6 +60,9 @@ async function fetchModel(urls, onProgress) {
       }
       const buf = new Uint8Array(got);
       let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+      if (cache) {
+        try { await cache.put(url, new Response(new Blob([buf]))); } catch (_) {}
+      }
       return buf;
     } catch (e) { lastErr = e; }
   }

@@ -153,6 +153,30 @@ button:active { transform: translateY(1px); }
 
 .detail { color: #6f7d99; font-size: 11.5px; margin-top: 8px; text-align: center; }
 
+/* ===== グループラベル・表示トグル・ツールセグメント ===== */
+.glabel { color: #74829f; font-size: 11px; margin-right: 2px; }
+.vtoggle {
+  background: transparent; border: 1px solid #34415f; color: #9fb0cc;
+  border-radius: 20px; padding: 6px 12px; font-size: 12.5px;
+}
+.vtoggle.blue.pressed { background: #1c3866; border-color: #4d8bff; color: #cfe0ff; }
+.vtoggle.red.pressed  { background: #4a1f2e; border-color: #ff8aa0; color: #ffd3dc; }
+
+.seg { display: inline-flex; border: 1px solid #34415f; border-radius: 10px; overflow: hidden; }
+.segbtn {
+  border-radius: 0; background: transparent; color: #9fb0cc;
+  padding: 7px 13px; font-size: 13px; border-right: 1px solid #34415f;
+}
+.segbtn:last-child { border-right: 0; }
+.segbtn.pressed { background: #2b3550; color: #eaf1ff; }
+.segbtn.pink.pressed  { background: #d84a68; color: #fff; }
+.segbtn.green.pressed { background: #2e7d4f; color: #fff; }
+
+.applybtn {
+  background: #2e7d4f; font-weight: 600;
+}
+.applybtn:disabled { opacity: .35; cursor: default; }
+
 footer {
   display: flex; gap: 16px; justify-content: center; align-items: center;
   color: #5d6a84; font-size: 11px; padding: 12px;

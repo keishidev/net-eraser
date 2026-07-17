@@ -6,7 +6,7 @@
 <title>ネット消しゴム | 防球ネット越しの写真をきれいに</title>
 <meta name="description" content="球場の防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできる無料ツール。写真はアップロードされず、すべてブラウザ内で処理されます。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥎</text></svg>">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <header>
@@ -78,13 +78,21 @@
       </div>
       <div class="csep"></div>
       <div class="cgroup">
-        <button id="showmaskbtn" class="tbtn" title="AIが修正した場所を青く表示します">🔵 修正箇所</button>
-        <button id="brushbtn" class="tbtn" title="なぞった場所を守ります(変換しない・赤)">🖌 保護</button>
-        <button id="erasebtn" class="tbtn" title="なぞった場所も追加で消します(緑→適用)">🧽 消し</button>
+        <span class="glabel">表示</span>
+        <button id="showmaskbtn" class="vtoggle blue" title="AIが修正した場所を青く表示">🔵 AI修正</button>
+        <button id="showprotectbtn" class="vtoggle red pressed" title="保護した場所を赤く表示">🔴 保護</button>
+      </div>
+      <div class="csep"></div>
+      <div class="cgroup">
+        <span class="glabel">ツール</span>
+        <div class="seg">
+          <button id="viewtool" class="segbtn pressed" title="画像を押している間、元の写真と比較">🖐 比較</button>
+          <button id="brushbtn" class="segbtn pink" title="なぞった場所を守る(変換しない)">🖌 保護</button>
+          <button id="erasebtn" class="segbtn green" title="なぞった場所も追加で消す">🧽 消し</button>
+        </div>
         <input type="range" id="brushsize" min="10" max="160" value="50" title="ブラシの大きさ">
-        <button id="applyerase" class="primary" hidden title="緑でなぞった場所をAIで消します">✨ 消しを適用</button>
-        <button id="showprotectbtn" class="tbtn on" title="保護した場所(赤)の表示を切り替えます">🔴 表示</button>
-        <button id="clearprotect" class="tbtn" title="いま選んでいるブラシの塗りを取り消します">↺ クリア</button>
+        <button id="applyerase" class="applybtn" disabled title="緑でなぞった場所をAIで消します">✨ 適用</button>
+        <button id="clearprotect" class="tbtn" title="いま選んでいるツールの塗りを取り消す">↺</button>
       </div>
       <div class="csep"></div>
       <div class="cgroup">
@@ -101,8 +109,8 @@
   <span id="userchip" hidden></span>
 </footer>
 
-<script src="js/config.js?v=14"></script>
-<script src="js/auth.js?v=14"></script>
-<script src="js/app.js?v=14"></script>
+<script src="js/config.js?v=16"></script>
+<script src="js/auth.js?v=16"></script>
+<script src="js/app.js?v=16"></script>
 </body>
 </html>

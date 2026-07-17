@@ -2,10 +2,12 @@
 // パイプライン: 検出 → インペイント → 腕/リボンバッファ → 残骸スイープ → 輪郭復元
 "use strict";
 
+// worker.js?v=N のクエリを子スクリプトにも伝搬(古いキャッシュ読込を防ぐ)
+const __V = new URLSearchParams(self.location.search).get("v") || "0";
 importScripts("../vendor/opencv.js");
 importScripts("https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/ort.webgpu.min.js");
-importScripts("detect.js");
-importScripts("inpaint.js");
+importScripts(`detect.js?v=${__V}`);
+importScripts(`inpaint.js?v=${__V}`);
 // worker内ではwasmバイナリの相対解決が壊れるためCDNを明示
 ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.27.0/dist/";
 
