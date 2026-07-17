@@ -6,7 +6,7 @@
 <title>ネット消しゴム | 防球ネット越しの写真をきれいに</title>
 <meta name="description" content="球場の防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできる無料ツール。写真はアップロードされず、すべてブラウザ内で処理されます。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥎</text></svg>">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <header>
@@ -78,9 +78,10 @@
       </div>
       <div class="csep"></div>
       <div class="cgroup">
+        <button id="showmaskbtn" class="tbtn" title="AIが修正した場所を青く表示します">🔵 修正箇所</button>
         <button id="brushbtn" class="tbtn" title="なぞった場所を変換せず元の写真のまま残します">🖌 保護ブラシ</button>
         <input type="range" id="brushsize" min="10" max="160" value="50" title="ブラシの大きさ">
-        <button id="showprotectbtn" class="tbtn on" title="保護した場所の赤い表示を切り替えます">👁 赤表示</button>
+        <button id="showprotectbtn" class="tbtn on" title="保護した場所(赤)の表示を切り替えます">🔴 保護</button>
         <button id="clearprotect" class="tbtn" title="保護をすべて取り消します">↺ クリア</button>
       </div>
       <div class="csep"></div>
@@ -98,8 +99,8 @@
   <span id="userchip" hidden></span>
 </footer>
 
-<script src="js/config.js?v=12"></script>
-<script src="js/auth.js?v=12"></script>
-<script src="js/app.js?v=12"></script>
+<script src="js/config.js?v=13"></script>
+<script src="js/auth.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
 </body>
 </html>

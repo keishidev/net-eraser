@@ -14,7 +14,7 @@ let orig = null, result = null, alphaMap = null;
 let W = 0, H = 0, dispScale = 1;
 let origDisp = null, resultDisp = null, alphaDisp = null, protectDisp = null;
 let worker = null, busy = false, ready = false;
-let brushOn = false, showProtect = true, holdCompare = false;
+let brushOn = false, showProtect = true, showMask = false, holdCompare = false;
 
 function setStatus(t) { status.textContent = t || ""; }
 function setOverlay(show, text, pct) {
@@ -25,7 +25,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=12");
+  if (!worker) worker = new Worker("js/worker.js?v=13");
   return worker;
 }
 
@@ -210,10 +210,15 @@ function render() {
   if (holdCompare) out.set(origDisp);
   else {
     for (let i = 0, p = 0; i < dw * dh; i++, p += 4) {
-      const wgt = beta * alphaDisp[i];
+      const a = alphaDisp[i];
+      const wgt = beta * a;
       let r = resultDisp[p]     * (1 - wgt) + origDisp[p]     * wgt;
       let g = resultDisp[p + 1] * (1 - wgt) + origDisp[p + 1] * wgt;
       let b = resultDisp[p + 2] * (1 - wgt) + origDisp[p + 2] * wgt;
+      if (showMask && a > 0.04) {   // 🔵 AIが修正した場所
+        g = Math.min(255, g + 34 * a);
+        b = Math.min(255, b + 95 * a);
+      }
       const pv = protectDisp[i];
       if (pv > 0) {
         r = r * (1 - pv) + origDisp[p]     * pv;
@@ -330,6 +335,14 @@ function toggleShowProtect() {
   queueRender();
 }
 $("showprotectbtn").addEventListener("click", toggleShowProtect);
+$("showmaskbtn").addEventListener("click", () => {
+  showMask = !showMask;
+  $("showmaskbtn").classList.toggle("on", showMask);
+  $("hint").textContent = showMask
+    ? "🔵 青 = AIが修正した場所 ／ 🔴 赤 = 保護した場所"
+    : (brushOn ? "🖌 なぞった場所は変換されません" : "🖐 画像を押している間、元の写真が見えます");
+  queueRender();
+});
 $("clearprotect").addEventListener("click", () => {
   if (protectDisp) protectDisp.fill(0);
   queueRender();
