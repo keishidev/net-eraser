@@ -17,6 +17,7 @@ let protectDisp = null, eraseDisp = null;   // 保護(赤) / 消し指定(緑・
 let worker = null, busy = false, ready = false;
 let brushMode = "none";                     // "none" | "protect" | "erase"
 let showProtect = true, showMask = false, holdCompare = false;
+let strokes = [], currentStroke = null;     // ブラシのストローク履歴(Undo用)
 
 function setStatus(t) { status.textContent = t || ""; }
 function setOverlay(show, text, pct) {
@@ -27,7 +28,7 @@ function setOverlay(show, text, pct) {
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=18");
+  if (!worker) worker = new Worker("js/worker.js?v=19");
   return worker;
 }
 
@@ -41,10 +42,10 @@ function getWorker() {
     const info = ad.info || {};
     const name = [info.description, info.device, info.vendor, info.architecture]
       .filter(v => v && String(v).trim()).map(String)[0] || "";
-    el.textContent = `✅ WebGPUが使えます${name ? "（" + name + "）" : ""} — 高速に処理できます`;
+    el.textContent = `✅ この端末なら高速に処理できます${name ? "（" + name + "）" : ""}`;
     el.className = "gpustatus ok";
   } catch (_) {
-    el.textContent = "⚠️ WebGPU非対応のため、CPUでゆっくり動作します。仕上がりは「⚡標準」がおすすめです";
+    el.textContent = "⚠️ この端末では処理がゆっくりになります。「⚡スピード優先」がおすすめです";
     el.className = "gpustatus warn";
     // 非対応環境では標準モデルを既定に
     const mg = document.querySelector('input[name=model][value=migan]');
@@ -291,6 +292,8 @@ canvas.addEventListener("pointerdown", ev => {
   if (brushMode !== "none" && protectDisp) {
     painting = true;
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    if (currentStroke && currentStroke.points.length) strokes.push(currentStroke);  // 保険: 未確定分を確定
+    currentStroke = { layer: brushMode, points: [] };
     paintAt(ev);
   } else {
     holdCompare = true;   // 長押し比較
@@ -306,6 +309,10 @@ canvas.addEventListener("pointermove", ev => {
 canvas.addEventListener("pointerenter", updateBrushCursor);
 canvas.addEventListener("pointerout", () => { brushCursor.hidden = true; });
 function endPointer() {
+  if (currentStroke) {
+    if (currentStroke.points.length) strokes.push(currentStroke);
+    currentStroke = null;
+  }
   painting = false;
   if (holdCompare) {
     holdCompare = false;
@@ -317,13 +324,8 @@ canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", () => { if (holdCompare) endPointer(); });
 
-function paintAt(ev) {
-  const layer = brushMode === "erase" ? eraseDisp : protectDisp;
-  if (!layer) return;
-  const rect = canvas.getBoundingClientRect();
-  const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
-  const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
-  const r = (+$("brushsize").value) / 2;
+// 1スタンプ分をレイヤーへ塗る(paintAt/Undo再生で共用)
+function stampAt(layer, cx, cy, r) {
   const dw = canvas.width, dh = canvas.height;
   const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(dw - 1, Math.ceil(cx + r));
   const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(dh - 1, Math.ceil(cy + r));
@@ -337,7 +339,33 @@ function paintAt(ev) {
       }
     }
   }
+}
+
+function paintAt(ev) {
+  const layer = brushMode === "erase" ? eraseDisp : protectDisp;
+  if (!layer) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
+  const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
+  const r = (+$("brushsize").value) / 2;
+  stampAt(layer, cx, cy, r);
+  if (currentStroke) currentStroke.points.push({ cx, cy, r });
   if (brushMode === "erase") setApplyEnabled(true);
+  queueRender();
+}
+
+// 直前のひと塗りを取り消し、残りのストロークを再生
+function undoStroke() {
+  if (!strokes.length) return;
+  strokes.pop();
+  protectDisp && protectDisp.fill(0);
+  eraseDisp && eraseDisp.fill(0);
+  for (const s of strokes) {
+    const layer = s.layer === "erase" ? eraseDisp : protectDisp;
+    if (!layer) continue;
+    for (const p of s.points) stampAt(layer, p.cx, p.cy, p.r);
+  }
+  setApplyEnabled(strokes.some(s => s.layer === "erase"));
   queueRender();
 }
 
@@ -413,6 +441,7 @@ $("applyerase").addEventListener("click", async () => {
     for (let i = 0; i < alphaMap.length; i++)
       if (alphaDelta[i] > alphaMap[i]) alphaMap[i] = alphaDelta[i];
     eraseDisp.fill(0);
+    strokes = strokes.filter(s => s.layer !== "erase");   // AIに焼き込み済みのため取り消し不可
     setApplyEnabled(false);
     buildDisplayCache();
     render();
@@ -449,15 +478,27 @@ $("showmaskbtn").addEventListener("click", () => {
   queueRender();
 });
 $("clearprotect").addEventListener("click", () => {
-  // 選択中ブラシのレイヤーを消す(未選択なら両方)
-  if (brushMode === "erase") { eraseDisp && eraseDisp.fill(0); setApplyEnabled(false); }
-  else if (brushMode === "protect") { protectDisp && protectDisp.fill(0); }
-  else {
+  // 選択中ブラシのレイヤーを消す(未選択なら両方)。対象ストローク履歴も除去
+  if (brushMode === "erase") {
+    eraseDisp && eraseDisp.fill(0);
+    strokes = strokes.filter(s => s.layer !== "erase");
+    setApplyEnabled(false);
+  } else if (brushMode === "protect") {
+    protectDisp && protectDisp.fill(0);
+    strokes = strokes.filter(s => s.layer !== "protect");
+  } else {
     protectDisp && protectDisp.fill(0);
     eraseDisp && eraseDisp.fill(0);
+    strokes = [];
     setApplyEnabled(false);
   }
   queueRender();
+});
+
+/* ===== ストローク単位Undo ===== */
+$("undobtn").addEventListener("click", undoStroke);
+window.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "z" && ready) { e.preventDefault(); undoStroke(); }
 });
 
 /* ===== 保存 / リセット ===== */
@@ -507,6 +548,7 @@ $("reset").addEventListener("click", () => {
   orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
   ready = false;
   brushMode = "none";
+  strokes = []; currentStroke = null;
   $("brushbtn").classList.remove("pressed");
   $("erasebtn").classList.remove("pressed");
   $("viewtool").classList.add("pressed");

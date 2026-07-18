@@ -6,7 +6,7 @@
 <title>ネット消しゴム | 防球ネット越しの写真をきれいに</title>
 <meta name="description" content="球場の防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできる無料ツール。写真はアップロードされず、すべてブラウザ内で処理されます。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥎</text></svg>">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 <header>
@@ -39,16 +39,16 @@
       <div class="optgroup">
         <div class="optlabel">モード</div>
         <label class="chip"><input type="radio" name="mode" value="kirara" checked>
-          <span>🐹 キララ<small>マスコットの顔・肉球を自動保護</small></span></label>
+          <span>🐹 マスコット写真<small>顔・肉球などを自動で保護</small></span></label>
         <label class="chip"><input type="radio" name="mode" value="generic">
-          <span>🌏 汎用<small>その他のネット写真すべて</small></span></label>
+          <span>🌏 その他の写真<small>風景・人物などネット越し全般</small></span></label>
       </div>
       <div class="optgroup">
         <div class="optlabel">仕上がり</div>
         <label class="chip"><input type="radio" name="model" value="lama" checked>
-          <span>✨ 高品質<small>LaMa — 初回のみ198MB取得</small></span></label>
+          <span>✨ きれい優先<small>初回のみ198MBダウンロード</small></span></label>
         <label class="chip"><input type="radio" name="model" value="migan">
-          <span>⚡ 標準<small>MI-GAN — 軽量27MB・高速</small></span></label>
+          <span>⚡ スピード優先<small>軽量27MB・高速</small></span></label>
       </div>
     </div>
     <div id="gpustatus" class="gpustatus">🔎 お使いのGPUを確認しています…</div>
@@ -100,6 +100,7 @@
         <span class="glabel">太さ</span>
         <input type="range" id="brushsize" min="10" max="160" value="50" disabled aria-label="ブラシの太さ" title="ブラシの大きさ">
         <button id="applyerase" class="applybtn" disabled title="先に🧽消しツールで場所をなぞってください">✨ なぞった所を消す</button>
+        <button id="undobtn" class="tbtn" title="直前のひと塗りを取り消す (Ctrl+Z)">↶ 戻す</button>
         <button id="clearprotect" class="tbtn" title="いま選んでいるツールの塗りを取り消す">↺ 塗りを消す</button>
       </div>
       <div class="csep"></div>
@@ -117,8 +118,8 @@
   <span id="userchip" hidden></span>
 </footer>
 
-<script src="js/config.js?v=18"></script>
-<script src="js/auth.js?v=18"></script>
-<script src="js/app.js?v=18"></script>
+<script src="js/config.js?v=19"></script>
+<script src="js/auth.js?v=19"></script>
+<script src="js/app.js?v=19"></script>
 </body>
 </html>
