@@ -18,6 +18,7 @@ let worker = null, busy = false, ready = false;
 let brushMode = "none";                     // "none" | "protect" | "erase"
 let showProtect = true, showMask = false, holdCompare = false;
 let strokes = [], currentStroke = null;     // ブラシのストローク履歴(Undo用)
+let zoom = 1, vpx = 0, vpy = 0;             // 拡大倍率とビューポート左上(フル解像度座標)
 
 function setStatus(t) { status.textContent = t || ""; }
 function setOverlay(show, text, pct) {
@@ -50,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=20");
+  if (!worker) worker = new Worker("js/worker.js?v=21");
   return worker;
 }
 
@@ -120,6 +121,7 @@ async function handleFile(file) {
 
     // すぐに編集画面へ: 元画像を表示して進捗オーバーレイ
     $("flowguide").hidden = true;
+    zoom = 1; vpx = 0; vpy = 0; $("zoomchip").hidden = true;
     setup.hidden = true; view.hidden = false;
     $("controlbar").dataset.disabled = "1";
     setProcessing(true);
@@ -274,6 +276,7 @@ function render() {
   const beta = (+fade.value) / 100;
   fadeval.textContent = fade.value + "%";
   const dw = canvas.width, dh = canvas.height;
+  if (zoom > 1) { renderZoomed(beta, dw, dh); return; }
   const out = new Uint8ClampedArray(resultDisp.length);
   if (holdCompare) out.set(origDisp);
   else {
@@ -305,6 +308,48 @@ function render() {
   canvas.getContext("2d").putImageData(new ImageData(out, dw, dh), 0, 0);
 }
 
+// zoom>1: フル解像度の orig/result/alphaMap を直接サンプルして描画(拡大してもシャープ)
+function renderZoomed(beta, dw, dh) {
+  const out = new Uint8ClampedArray(dw * dh * 4);
+  const eff = dispScale * zoom;
+  for (let y = 0; y < dh; y++) {
+    const oy = Math.min(H - 1, Math.max(0, Math.floor(vpy + y / eff)));
+    const dyBase = Math.min(dh - 1, Math.round(oy * dispScale)) * dw;
+    for (let x = 0; x < dw; x++) {
+      const ox = Math.min(W - 1, Math.max(0, Math.floor(vpx + x / eff)));
+      const oi = oy * W + ox, op = oi * 4, p = (y * dw + x) * 4;
+      if (holdCompare) {
+        out[p] = orig[op]; out[p + 1] = orig[op + 1]; out[p + 2] = orig[op + 2]; out[p + 3] = 255;
+        continue;
+      }
+      const a = alphaMap[oi];
+      const wgt = beta * a;
+      let r = result[op]     * (1 - wgt) + orig[op]     * wgt;
+      let g = result[op + 1] * (1 - wgt) + orig[op + 1] * wgt;
+      let b = result[op + 2] * (1 - wgt) + orig[op + 2] * wgt;
+      if (showMask && a > 0.04) {   // 🔵 AIが修正した場所
+        g = Math.min(255, g + 34 * a);
+        b = Math.min(255, b + 95 * a);
+      }
+      const di = dyBase + Math.min(dw - 1, Math.round(ox * dispScale));
+      const ev = eraseDisp[di];
+      if (ev > 0) {                 // 🧽 消し指定(適用前)は緑
+        g = Math.min(255, g + 85 * ev);
+        r = r * (1 - 0.15 * ev);
+      }
+      const pv = protectDisp[di];
+      if (pv > 0) {                 // 🖌 保護(最優先)
+        r = r * (1 - pv) + orig[op]     * pv;
+        g = g * (1 - pv) + orig[op + 1] * pv;
+        b = b * (1 - pv) + orig[op + 2] * pv;
+        if (showProtect) { r = Math.min(255, r + 70 * pv); b = Math.min(255, b + 20 * pv); }
+      }
+      out[p] = r; out[p + 1] = g; out[p + 2] = b; out[p + 3] = 255;
+    }
+  }
+  canvas.getContext("2d").putImageData(new ImageData(out, dw, dh), 0, 0);
+}
+
 let renderQueued = false;
 function queueRender() {
   if (renderQueued) return;
@@ -313,9 +358,75 @@ function queueRender() {
 }
 fade.addEventListener("input", queueRender);
 
-/* ===== 長押しで元画像比較 / 保護ブラシ ===== */
+/* ===== ズーム / パン ===== */
+function clampViewport() {
+  if (zoom <= 1) { zoom = 1; vpx = 0; vpy = 0; return; }
+  const eff = dispScale * zoom;
+  const maxX = Math.max(0, W - canvas.width / eff);
+  const maxY = Math.max(0, H - canvas.height / eff);
+  vpx = Math.max(0, Math.min(maxX, vpx));
+  vpy = Math.max(0, Math.min(maxY, vpy));
+}
+function updateZoomChip() {
+  const on = zoom > 1.01;
+  $("zoomchip").hidden = !on;
+  if (on) $("zoomval").textContent = zoom.toFixed(1) + "×";
+}
+function setZoomAt(nz, cx, cy) {   // cx,cy: canvas px 上のアンカー
+  nz = Math.min(8, Math.max(1, nz));
+  const effOld = dispScale * zoom, effNew = dispScale * nz;
+  vpx += cx / effOld - cx / effNew;
+  vpy += cy / effOld - cy / effNew;
+  zoom = nz;
+  clampViewport();
+  updateZoomChip();
+  queueRender();
+}
+function resetZoom() { zoom = 1; vpx = 0; vpy = 0; updateZoomChip(); queueRender(); }
+$("zoomreset").addEventListener("click", resetZoom);
+
+canvas.addEventListener("wheel", ev => {
+  if (!ready) return;
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
+  const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
+  setZoomAt(zoom * Math.exp(-ev.deltaY * 0.002), cx, cy);
+}, { passive: false });
+
+canvas.addEventListener("dblclick", ev => {
+  if (!ready) return;
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
+  const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
+  setZoomAt(zoom > 1.01 ? 1 : 3, cx, cy);
+});
+
+/* ===== 長押しで元画像比較 / 保護ブラシ / パン ===== */
 let painting = false;
+let panning = false, panLast = null;        // ドラッグパン
+const activePointers = new Map();           // pointerId -> {x,y} (ピンチ判定用)
+let pinch = null;                           // 2本指ジェスチャー状態 {dist,cx,cy}
 const brushCursor = $("brushcursor");
+
+function pinchState() {
+  const pts = [...activePointers.values()];
+  const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+  return { dist: Math.hypot(dx, dy) || 1, cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2 };
+}
+function doPinch() {
+  const now = pinchState();
+  const rect = canvas.getBoundingClientRect();
+  const kx = canvas.width / rect.width, ky = canvas.height / rect.height;
+  setZoomAt(zoom * now.dist / pinch.dist, (now.cx - rect.left) * kx, (now.cy - rect.top) * ky);
+  const eff = dispScale * zoom;
+  vpx -= (now.cx - pinch.cx) * kx / eff;
+  vpy -= (now.cy - pinch.cy) * ky / eff;
+  clampViewport();
+  queueRender();
+  pinch = now;
+}
 
 function updateBrushCursor(ev) {
   if (brushMode === "none") { brushCursor.hidden = true; return; }
@@ -336,6 +447,26 @@ function updateBrushCursor(ev) {
 canvas.addEventListener("dragstart", ev => ev.preventDefault());
 canvas.addEventListener("pointerdown", ev => {
   if (!ready) return;
+  activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  // 2本目のタッチ → ピンチ/パンジェスチャーへ移行(描画・比較は中断)
+  if (activePointers.size === 2) {
+    if (currentStroke) {
+      if (currentStroke.points.length) strokes.push(currentStroke);
+      currentStroke = null;
+    }
+    painting = false; panning = false; panLast = null;
+    if (holdCompare) { holdCompare = false; queueRender(); }
+    pinch = pinchState();
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    ev.preventDefault();
+    return;
+  }
+  if (ev.button === 1) {   // 中ボタンドラッグは全ツールでパン
+    panning = true; panLast = { x: ev.clientX, y: ev.clientY };
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+    ev.preventDefault();
+    return;
+  }
   if (brushMode !== "none" && protectDisp) {
     painting = true;
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
@@ -343,19 +474,37 @@ canvas.addEventListener("pointerdown", ev => {
     currentStroke = { layer: brushMode, points: [] };
     paintAt(ev);
   } else {
-    holdCompare = true;   // 長押し比較
+    holdCompare = true;   // 長押し比較(拡大中はドラッグでパンも)
+    if (zoom > 1) { panning = true; panLast = { x: ev.clientX, y: ev.clientY }; }
+    try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
     $("hint").textContent = "🖐 元画像を表示中(離すと戻る)";
     queueRender();
   }
   ev.preventDefault();
 });
 canvas.addEventListener("pointermove", ev => {
+  if (activePointers.has(ev.pointerId)) activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pinch && activePointers.size >= 2) { doPinch(); ev.preventDefault(); return; }
   updateBrushCursor(ev);
+  if (panning && panLast) {
+    const rect = canvas.getBoundingClientRect();
+    const eff = dispScale * zoom;
+    vpx -= (ev.clientX - panLast.x) * (canvas.width / rect.width) / eff;
+    vpy -= (ev.clientY - panLast.y) * (canvas.height / rect.height) / eff;
+    panLast = { x: ev.clientX, y: ev.clientY };
+    clampViewport();
+    queueRender();
+    ev.preventDefault();
+    return;
+  }
   if (painting && brushMode !== "none") { paintAt(ev); ev.preventDefault(); }
 });
 canvas.addEventListener("pointerenter", updateBrushCursor);
 canvas.addEventListener("pointerout", () => { brushCursor.hidden = true; });
-function endPointer() {
+function endPointer(ev) {
+  if (ev && ev.pointerId != null) activePointers.delete(ev.pointerId);
+  if (pinch && activePointers.size < 2) pinch = null;   // ジェスチャー終了(そのまま何もしない)
+  if (activePointers.size === 0) { panning = false; panLast = null; }
   if (currentStroke) {
     if (currentStroke.points.length) strokes.push(currentStroke);
     currentStroke = null;
@@ -363,7 +512,7 @@ function endPointer() {
   painting = false;
   if (holdCompare) {
     holdCompare = false;
-    $("hint").textContent = "🖐 画像を長押しで元画像と比較";
+    $("hint").textContent = "🖐 画像を長押しで元画像と比較／ホイールで拡大";
     queueRender();
   }
 }
@@ -392,9 +541,11 @@ function paintAt(ev) {
   const layer = brushMode === "erase" ? eraseDisp : protectDisp;
   if (!layer) return;
   const rect = canvas.getBoundingClientRect();
-  const cx = (ev.clientX - rect.left) * canvas.width / rect.width;
-  const cy = (ev.clientY - rect.top) * canvas.height / rect.height;
-  const r = (+$("brushsize").value) / 2;
+  // canvas px → 元画像座標(vp+/eff) → disp座標。zoom=1では従来と同値
+  const eff = dispScale * zoom;
+  const cx = (vpx + (ev.clientX - rect.left) * canvas.width / rect.width / eff) * dispScale;
+  const cy = (vpy + (ev.clientY - rect.top) * canvas.height / rect.height / eff) * dispScale;
+  const r = (+$("brushsize").value) / 2 / zoom;   // 画面上のブラシ見た目サイズは一定
   stampAt(layer, cx, cy, r);
   if (currentStroke) currentStroke.points.push({ cx, cy, r });
   if (brushMode === "erase") setApplyEnabled(true);
@@ -437,7 +588,7 @@ function setBrushMode(mode) {
   $("hint").textContent =
     brushMode === "protect" ? "🖌 なぞった場所は変換されません(赤)" :
     brushMode === "erase"   ? "🧽 なぞった場所も消します(緑) → ✨適用" :
-    "🖐 画像を押している間、元の写真が見えます";
+    "🖐 画像を押している間、元の写真が見えます／ホイールで拡大";
   if (brushMode === "protect" && !showProtect) toggleShowProtect();
   queueRender();
 }
@@ -616,6 +767,7 @@ $("reset").addEventListener("click", () => {
   $("viewtool").setAttribute("aria-pressed", "true");
   $("brushsize").disabled = true;
   setApplyEnabled(false);
+  zoom = 1; vpx = 0; vpy = 0; $("zoomchip").hidden = true;
   canvas.style.cursor = "";
   brushCursor.hidden = true;
   setStatus("");
@@ -640,6 +792,6 @@ window.__dbg = () => {
   if (result && orig) for (let i = 0; i < n; i++) rd += Math.abs(result[i] - orig[i]);
   if (resultDisp && origDisp) for (let i = 0; i < n; i++) dd += Math.abs(resultDisp[i] - origDisp[i]);
   if (alphaMap) for (let i = 0; i < n; i++) as += alphaMap[i];
-  return { resultVsOrig: rd, dispVsOrig: dd, alphaSum: Math.round(as), fade: fade.value, ready };
+  return { resultVsOrig: rd, dispVsOrig: dd, alphaSum: Math.round(as), fade: fade.value, ready, zoom, vpx, vpy };
 };
 })();
