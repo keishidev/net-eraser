@@ -19,6 +19,17 @@ const cvReady = new Promise(res => {
 const post = (type, payload, transfer) => self.postMessage({ type, ...payload }, transfer || []);
 const progress = (text, pct) => post("progress", { text, pct });
 
+// ===== 単一の全体進捗バー: 工程ごとの区間ウェイト =====
+const STAGES = { detect: [2, 10], inpaint: [10, 55], buffer: [55, 68], sweep: [68, 95], finish: [95, 100] };
+let curStage = "detect";
+function sprog(text, frac) {  // frac: 0..100 or null
+  const [a, b] = STAGES[curStage] || [0, 100];
+  post("progress", { text, pct: frac == null ? null : a + (b - a) * frac / 100 });
+}
+
+// ===== キャンセル要求フラグ (inpaint.jsのタイルループとも共有) =====
+self.__cancelRequested = false;
+
 function upscaleMaskNearest(maskMat, W, H) {
   const mw = maskMat.cols, mh = maskMat.rows, src = maskMat.data;
   const out = new Uint8Array(W * H);
@@ -69,6 +80,7 @@ function downsampleRGBA(rgba, W, H, tw) {
 
 // 消しブラシの追加インペイント(結果画像に対してユーザー指定マスクを消す)
 async function handleMore(msg) {
+  self.__cancelRequested = false;
   try {
     await cvReady;
     const { W, H } = msg;
@@ -88,6 +100,7 @@ async function handleMore(msg) {
     const ob = out.buffer, ab = alpha.buffer;
     post("moreDone", { result: ob, alpha: ab }, [ob, ab]);
   } catch (err) {
+    if (err && err.message === "__cancelled__") { post("cancelled", {}); return; }
     post("error", { message: (err && err.message) || String(err) });
   }
 }
@@ -106,8 +119,10 @@ function maskFullToSmall(maskData, W, H, mw, mh) {
 
 self.onmessage = async (e) => {
   const msg = e.data;
+  if (msg.type === "cancel") { self.__cancelRequested = true; return; }
   if (msg.type === "more") return handleMore(msg);
   if (msg.type !== "process") return;
+  self.__cancelRequested = false;
   try {
     await cvReady;
     const { W, H, kirara, model } = msg;
@@ -116,28 +131,36 @@ self.onmessage = async (e) => {
     const midData = msg.mid ? new ImageData(new Uint8ClampedArray(msg.mid.buf), msg.mid.w, msg.mid.h) : null;
 
     progress("AIモデルを準備しています…", null);
+    const tPrep = performance.now();
     await Inpaint.loadModel(model || "migan", (t, p) => progress(t, p));
+    const prepMs = performance.now() - tPrep;
+    if (self.__cancelRequested) { post("cancelled", {}); return; }
 
+    curStage = "detect";
     const t0 = performance.now();
     const { mask, thin, subject } = Detect.detectNet(smallData, midData, {
-      kirara, progress: t => progress(t, null),
+      kirara, progress: t => sprog(t, null),
     });
     thin.delete();
     const detMs = performance.now() - t0;
+    if (self.__cancelRequested) { post("cancelled", {}); return; }
 
     const maskData = upscaleMaskNearest(mask, W, H);
 
     // 1) メインインペイント
+    curStage = "inpaint";
     const t1 = performance.now();
-    let result = await Inpaint.inpaint(full, maskData, W, H, (t, p) => progress(t, p));
+    let result = await Inpaint.inpaint(full, maskData, W, H, (t, p) => sprog(t, p));
     const inMs = performance.now() - t1;
+    if (self.__cancelRequested) { post("cancelled", {}); return; }
 
     // 2) 腕/リボンバッファ: ピンク領域の紐周辺を広く再充填(溝・影ごと除去)
     let bufMs = 0;
     if (kirara) {
       try {
         const t2 = performance.now();
-        progress("腕やリボンを整えています…", null);
+        curStage = "buffer";
+        sprog("腕やリボンを整えています…", 0);
         const zone = Detect.pinkZones(smallData);
         const strips = Detect.buildStrips(mask, zone);
         zone.delete();
@@ -146,17 +169,22 @@ self.onmessage = async (e) => {
           strips.delete();
           for (let i = 0; i < sData.length; i++) if (sData[i]) maskData[i] = 255;
           result = await Inpaint.inpaint(result, sData, W, H,
-            (t, p) => progress(t, p), "腕やリボンを整えています");
+            (t, p) => sprog(t, p), "腕やリボンを整えています");
         }
         bufMs = performance.now() - t2;
-      } catch (be) { console.warn("buffer skipped:", be); }
+      } catch (be) {
+        if (be && be.message === "__cancelled__") throw be;
+        console.warn("buffer skipped:", be);
+      }
     }
+    if (self.__cancelRequested) { post("cancelled", {}); return; }
 
     // 3) 残骸スイープ(背景の点/切れ端)
     let sweepMs = 0;
     try {
       const t3 = performance.now();
-      progress("消し残しを掃除しています…", null);
+      curStage = "sweep";
+      sprog("消し残しを掃除しています…", 0);
       const smallRes = downsampleRGBA(result, W, H, mask.cols);
       const sMask = Detect.sweepSpecks(smallRes, subject);
       if (sMask) {
@@ -166,15 +194,20 @@ self.onmessage = async (e) => {
         for (let i = 0; i < sData.length; i++) if (sData[i]) { cnt++; maskData[i] = 255; }
         if (cnt > 0) {
           result = await Inpaint.inpaint(result, sData, W, H,
-            (t, p) => progress(t, p), "消し残しを掃除しています");
+            (t, p) => sprog(t, p), "消し残しを掃除しています");
         }
       }
       sweepMs = performance.now() - t3;
-    } catch (se) { console.warn("sweep skipped:", se); }
+    } catch (se) {
+      if (se && se.message === "__cancelled__") throw se;
+      console.warn("sweep skipped:", se);
+    }
+    if (self.__cancelRequested) { post("cancelled", {}); return; }
 
     // 4) 輪郭復元: キャラのシルエット帯は元画像に戻す(紐横断部を除く)
     try {
-      progress("輪郭を整えています…", null);
+      curStage = "finish";
+      sprog("輪郭を整えています…", 20);
       const wMat = Detect.contourWeights(subject, mask);
       const wFull = upscaleFloatBilinear(wMat, W, H);
       wMat.delete();
@@ -189,7 +222,8 @@ self.onmessage = async (e) => {
     } catch (ce) { console.warn("contour skipped:", ce); }
 
     // 5) フェザーα (fade スライダー用)
-    progress("最後の仕上げをしています…", null);
+    curStage = "finish";
+    sprog("最後の仕上げをしています…", 60);
     const mSmall = cv.matFromArray(mask.rows, mask.cols, cv.CV_8U,
                                    maskFullToSmall(maskData, W, H, mask.cols, mask.rows));
     const mF = new cv.Mat();
@@ -201,9 +235,10 @@ self.onmessage = async (e) => {
     const resBuf = result.buffer, alphaBuf = alpha.buffer;
     post("done", {
       result: resBuf, alpha: alphaBuf, W, H,
-      stats: { detMs, inMs, bufMs, sweepMs, ep: Inpaint.ep },
+      stats: { prepMs, detMs, inMs, bufMs, sweepMs, ep: Inpaint.ep },
     }, [resBuf, alphaBuf]);
   } catch (err) {
+    if (err && err.message === "__cancelled__") { post("cancelled", {}); return; }
     let m = err && err.message;
     if (typeof err === "number" && typeof cv !== "undefined" && cv.exceptionFromPtr) {
       try { m = cv.exceptionFromPtr(err).msg; } catch (_) {}

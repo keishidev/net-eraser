@@ -37,7 +37,7 @@ async function fetchModel(urls, onProgress) {
       try {
         const hit = await cache.match(url);
         if (hit) {
-          onProgress("保存済みのAIモデルを読み込んでいます…", null);
+          onProgress("保存済みのAIモデルを起動しています…（ダウンロードなし）", null);
           return new Uint8Array(await hit.arrayBuffer());
         }
       } catch (_) {}
@@ -73,7 +73,7 @@ async function loadModel(key, onProgress) {
   activeKey = key = key || "migan";
   if (sessions[key]) return sessions[key].ep;
   const buf = await fetchModel(MODELS[key].urls, onProgress);
-  onProgress(`${MODELS[key].label} を起動しています…（初回は数十秒かかります）`, null);
+  onProgress("AIを起動しています…（準備に20秒ほどかかります）", null);
   let session = null, ep = "";
   for (const e of ["webgpu", "wasm"]) {
     try {
@@ -150,6 +150,7 @@ async function inpaint(rgba, maskData, W, H, onProgress, tag) {
   const label = tag || "ネットを消しています";
 
   for (let ti = 0; ti < tiles.length; ti++) {
+    if (self.__cancelRequested) throw new Error("__cancelled__");   // 中止要求
     const [tx, ty] = tiles[ti];
     onProgress(`${label}… (${ti + 1}/${tiles.length})`, (ti / tiles.length) * 100);
     for (let y = 0; y < TILE; y++) {

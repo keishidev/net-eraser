@@ -24,11 +24,33 @@ function setOverlay(show, text, pct) {
   overlay.hidden = !show;
   if (text != null) ovtext.textContent = text;
   if (pct != null) { ovbar.hidden = false; ovbar.value = pct; }
-  else ovbar.hidden = true;
+  // pct==null のときはバーを隠さず直前の値を維持(単一進捗バー)
+}
+
+/* ===== タブタイトル / 処理中ロック ===== */
+const BASE_TITLE = document.title;
+let titleTimer = null;
+function setTitleProgress(pct) {
+  document.title = pct != null ? `処理中 ${Math.round(pct)}% | ネット消しゴム` : "処理中… | ネット消しゴム";
+}
+function restoreTitle() {
+  if (titleTimer) { clearTimeout(titleTimer); titleTimer = null; }
+  document.title = BASE_TITLE;
+}
+function markTitleDone() {
+  document.title = "✓ 完了 | ネット消しゴム";
+  if (titleTimer) clearTimeout(titleTimer);
+  titleTimer = setTimeout(restoreTitle, 8000);
+  window.addEventListener("pointerdown", restoreTitle, { once: true });
+}
+function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効化
+  $("download").disabled = on;
+  $("reset").disabled = on;
+  $("undobtn").disabled = on;
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=19");
+  if (!worker) worker = new Worker("js/worker.js?v=20");
   return worker;
 }
 
@@ -97,9 +119,12 @@ async function handleFile(file) {
     orig = fullData.data.slice();
 
     // すぐに編集画面へ: 元画像を表示して進捗オーバーレイ
+    $("flowguide").hidden = true;
     setup.hidden = true; view.hidden = false;
     $("controlbar").dataset.disabled = "1";
+    setProcessing(true);
     buildOrigOnlyDisplay();
+    ovbar.value = 0;
     setOverlay(true, "読み込んでいます…", null);
 
     // 開発用: ?fake=1 で推論スキップ
@@ -118,8 +143,9 @@ async function handleFile(file) {
     const done = new Promise((res, rej) => {
       wk.onmessage = ev => {
         const m = ev.data;
-        if (m.type === "progress") setOverlay(true, m.text, m.pct);
+        if (m.type === "progress") { setOverlay(true, m.text, m.pct); setTitleProgress(m.pct); }
         else if (m.type === "done") res(m);
+        else if (m.type === "cancelled") rej(new Error("__cancelled__"));
         else if (m.type === "error") rej(new Error(m.message));
       };
       wk.onerror = ev => rej(new Error(ev.message || "worker error"));
@@ -137,8 +163,22 @@ async function handleFile(file) {
     alphaMap = new Float32Array(m.alpha);
     finishReady(m.stats, (performance.now() - t0) / 1000);
   } catch (e) {
+    if (e && e.message === "__cancelled__") {
+      // 中止: 開始画面へ戻す
+      setOverlay(false);
+      view.hidden = true; setup.hidden = false;
+      orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
+      ready = false; busy = false;
+      setProcessing(false);
+      restoreTitle();
+      fileIn.value = "";
+      setStatus("中止しました");
+      return;
+    }
     console.error(e);
     setOverlay(true, "エラー: " + (e.message || String(e)), null);
+    setProcessing(false);
+    restoreTitle();
     busy = false;
   }
 }
@@ -149,10 +189,17 @@ function finishReady(s, totalSec) {
   setOverlay(false);
   $("controlbar").dataset.disabled = "0";
   ready = true; busy = false;
+  setProcessing(false);
+  markTitleDone();
+  const stageEl = $("stage");
+  stageEl.classList.add("done");
+  setTimeout(() => stageEl.classList.remove("done"), 900);
   if (!localStorage.getItem("flowguide_done")) $("flowguide").hidden = false;
   const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep;
   detail.textContent = totalSec
-    ? `処理時間 ${totalSec.toFixed(1)}秒（検出 ${(s.detMs / 1000).toFixed(1)}s・ネット消し ${(s.inMs / 1000).toFixed(1)}s` +
+    ? `処理時間 ${totalSec.toFixed(1)}秒（` +
+      (s.prepMs > 1000 ? `準備 ${(s.prepMs / 1000).toFixed(1)}s・` : "") +
+      `検出 ${(s.detMs / 1000).toFixed(1)}s・ネット消し ${(s.inMs / 1000).toFixed(1)}s` +
       (s.bufMs ? `・整え ${(s.bufMs / 1000).toFixed(1)}s` : "") +
       (s.sweepMs ? `・掃除 ${(s.sweepMs / 1000).toFixed(1)}s` : "") +
       ` ／ ${engine}実行）`
@@ -416,14 +463,16 @@ $("applyerase").addEventListener("click", async () => {
   if (!cnt) { setApplyEnabled(false); return; }
   busy = true;
   $("controlbar").dataset.disabled = "1";
+  setProcessing(true);
   setOverlay(true, "指定された場所を消しています…", null);
   try {
     const wk = getWorker();
     const done = new Promise((res, rej) => {
       wk.onmessage = ev => {
         const m = ev.data;
-        if (m.type === "progress") setOverlay(true, m.text, m.pct);
+        if (m.type === "progress") { setOverlay(true, m.text, m.pct); setTitleProgress(m.pct); }
         else if (m.type === "moreDone") res(m);
+        else if (m.type === "cancelled") rej(new Error("__cancelled__"));
         else if (m.type === "error") rej(new Error(m.message));
       };
       wk.onerror = ev => rej(new Error(ev.message || "worker error"));
@@ -447,11 +496,21 @@ $("applyerase").addEventListener("click", async () => {
     render();
     setOverlay(false);
     $("controlbar").dataset.disabled = "0";
+    markTitleDone();
   } catch (e) {
-    console.error(e);
-    setOverlay(true, "エラー: " + (e.message || String(e)), null);
+    if (e && e.message === "__cancelled__") {
+      // moreの中止: 適用前の状態のまま編集画面を維持
+      setOverlay(false);
+      $("controlbar").dataset.disabled = "0";
+      restoreTitle();
+    } else {
+      console.error(e);
+      setOverlay(true, "エラー: " + (e.message || String(e)), null);
+      restoreTitle();
+    }
   }
   busy = false;
+  setProcessing(false);
 });
 $("brushsize").addEventListener("input", () => {
   if (!brushCursor.hidden) {
@@ -567,6 +626,11 @@ $("reset").addEventListener("click", () => {
 $("flowclose").addEventListener("click", () => {
   $("flowguide").hidden = true;
   localStorage.setItem("flowguide_done", "1");
+});
+
+/* ===== 処理の中止 ===== */
+$("cancelbtn").addEventListener("click", () => {
+  if (worker) worker.postMessage({ type: "cancel" });
 });
 
 /* デバッグ用フック */
