@@ -51,8 +51,42 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=21");
+  if (!worker) worker = new Worker("js/worker.js?v=22");
   return worker;
+}
+
+/* ===== 匿名利用統計 (PostHog / config駆動) ===== */
+// posthogToken が空なら何もしない(スクリプトも読み込まない)
+function initAnalytics() {
+  const cfg = window.APP_CONFIG || {};
+  if (!cfg.posthogToken) return;
+  const host = cfg.posthogHost || "https://us.i.posthog.com";
+  const s = document.createElement("script");
+  s.src = host.replace("us.i.", "us-assets.i.") + "/static/array.js";
+  s.async = true;
+  s.onload = () => {
+    if (!window.posthog || !window.posthog.init) return;
+    window.posthog.init(cfg.posthogToken, {
+      api_host: host,
+      autocapture: false,
+      capture_pageview: true,
+      disable_session_recording: true,
+      persistence: "localStorage",
+      loaded: () => {
+        // 💬ボタンのクリック処理は書かない: PostHogサーベイ(widget selector)が拾う
+        const b = $("feedbackbtn"); if (b) b.hidden = false;
+        const n = $("statsnote"); if (n) n.hidden = false;
+      },
+    });
+  };
+  document.head.appendChild(s);
+}
+window.initAnalytics = initAnalytics;   // トークン注入後の手動検証用
+initAnalytics();
+
+// 匿名イベント送信(画像データ・ファイル名は絶対に送らない)
+function track(ev, props) {
+  try { if (window.posthog && window.posthog.capture) window.posthog.capture(ev, props); } catch (_) {}
 }
 
 /* ===== 起動時GPUチェック ===== */
@@ -174,10 +208,12 @@ async function handleFile(file) {
       setProcessing(false);
       restoreTitle();
       fileIn.value = "";
+      track("process_cancelled", {});
       setStatus("中止しました");
       return;
     }
     console.error(e);
+    track("process_error", { message: String(e.message || e).slice(0, 200) });
     setOverlay(true, "エラー: " + (e.message || String(e)), null);
     setProcessing(false);
     restoreTitle();
@@ -193,6 +229,11 @@ function finishReady(s, totalSec) {
   ready = true; busy = false;
   setProcessing(false);
   markTitleDone();
+  track("process_done", {
+    model: (document.querySelector("input[name=model]:checked") || {}).value,
+    mode: (document.querySelector("input[name=mode]:checked") || {}).value,
+    seconds: +totalSec.toFixed(1), ep: s.ep, mp: Math.round(W * H / 1e6),
+  });
   const stageEl = $("stage");
   stageEl.classList.add("done");
   setTimeout(() => stageEl.classList.remove("done"), 900);
@@ -648,6 +689,7 @@ $("applyerase").addEventListener("click", async () => {
     setOverlay(false);
     $("controlbar").dataset.disabled = "0";
     markTitleDone();
+    track("more_applied", {});
   } catch (e) {
     if (e && e.message === "__cancelled__") {
       // moreの中止: 適用前の状態のまま編集画面を維持
@@ -714,6 +756,7 @@ window.addEventListener("keydown", e => {
 /* ===== 保存 / リセット ===== */
 $("download").addEventListener("click", () => {
   if (!ready) return;
+  track("save", { fade: +fade.value });
   const beta = (+fade.value) / 100;
   const dw = canvas.width, dh = canvas.height;
   const out = new Uint8ClampedArray(result.length);

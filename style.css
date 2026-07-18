@@ -218,10 +218,14 @@ button:active { transform: translateY(1px); }
 .flowguide button { background: none; padding: 2px 6px; min-height: auto; color: #7d95c4; }
 
 footer {
-  display: flex; gap: 16px; justify-content: center; align-items: center;
+  display: flex; gap: 16px; justify-content: center; align-items: center; flex-wrap: wrap;
   color: #5d6a84; font-size: 11px; padding: 12px;
 }
 #userchip { color: #8fa4c8; }
+.feedbackbtn {
+  min-height: auto; padding: 4px 12px; font-size: 11px;
+  border-radius: 14px; background: #2b3550;
+}
 
 /* ===== スマホ対応 (〜640px) ===== */
 @media (max-width: 640px) {

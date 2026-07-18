@@ -9,4 +9,10 @@ window.APP_CONFIG = {
 
   // ログインを許可するメールアドレス(空配列なら誰でもログイン可)
   allowedEmails: [],
+
+  // 匿名利用統計・要望収集 (PostHog)
+  //   空文字なら完全無効(スクリプトも読み込まず、ボタンも表示しない)。
+  //   有効化するにはPostHogプロジェクトのAPIキー("phc_...")を貼る。
+  posthogToken: "",
+  posthogHost: "https://us.i.posthog.com",
 };
