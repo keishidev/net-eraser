@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=29");
+  if (!worker) worker = new Worker("js/worker.js?v=30");
   return worker;
 }
 
@@ -251,14 +251,13 @@ async function fetchCloudImage(url) {
 async function processCloud(file, mode, t0) {
   try {
     const base = brokerUrl();
-    // JPEG以外はJPEGへ変換して送信
-    let blob = file;
-    if (file.type !== "image/jpeg") {
-      const c = document.createElement("canvas");
-      c.width = W; c.height = H;
-      c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(orig), W, H), 0, 0);
-      blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.97));
-    }
+    // 常にcanvasから再エンコードして送信(EXIF回転を確定させる)
+    // 元ファイル直送だとスマホ縦写真がサーバー側で横向きのまま処理され、
+    // 返却画像の縦横がアプリ側(W,H)と食い違って崩れる
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(orig), W, H), 0, 0);
+    const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.97));
     setOverlay(true, "☁️ サーバーへ送信中… 0%", 0);
     const jobId = await uploadCloudJob(base, blob, "mode=" + encodeURIComponent(mode), "☁️ サーバーへ送信中");
     const stats = await pollCloudJob(base, jobId);
