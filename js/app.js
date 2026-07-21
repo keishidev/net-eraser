@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=28");
+  if (!worker) worker = new Worker("js/worker.js?v=29");
   return worker;
 }
 
@@ -111,6 +111,12 @@ async function checkCloudHealth() {
     if (++cloudFails < 2) return;
     cloudAlive = false;
   }
+  // 既定は☁️: ワーカー稼働中で、ユーザーがまだ仕上がりを一度も選んでいなければ自動選択
+  // (プログラム的なchecked変更はchangeイベントを発火しないため保存はされない)
+  if (cloudAlive && !localStorage.getItem("sel_model")) {
+    const cr = document.querySelector('input[name=model][value=cloud]');
+    if (cr && !cr.checked) cr.checked = true;
+  }
   updateCloudChip();
 }
 
@@ -125,6 +131,40 @@ function updateCloudChip() {
   const small = chip.querySelector("small");
   if (small) small.textContent = cloudAlive ? "開発者のGPUで最高品質・約40秒" : "停止中 — 復帰をお待ちください";
 }
+// モード/仕上がりの選択を記憶して復元
+// (再読み込みで☁️選択が外れ、気づかず端末内処理+モデルDLになる事故の防止)
+(function restoreChoices() {
+  const savedMode = localStorage.getItem("sel_mode");
+  if (savedMode) {
+    const r = document.querySelector(`input[name=mode][value="${savedMode}"]`);
+    if (r) r.checked = true;
+  }
+  const savedModel = localStorage.getItem("sel_model");
+  if (savedModel) {
+    const r = document.querySelector(`input[name=model][value="${savedModel}"]`);
+    if (r && (savedModel !== "cloud" || brokerUrl())) {
+      r.checked = true;
+      if (savedModel === "cloud") {
+        // ヘルス確認前でもチップを出して選択を見せる(状態表示はupdateCloudChipが上書き)
+        const chip = $("cloudchip");
+        if (chip) {
+          chip.hidden = false;
+          const small = chip.querySelector("small");
+          if (small) small.textContent = "確認中…";
+        }
+      }
+    }
+  }
+  document.querySelectorAll("input[name=mode], input[name=model]").forEach(el =>
+    el.addEventListener("change", () => {
+      const mv = document.querySelector("input[name=mode]:checked");
+      const kv = document.querySelector("input[name=model]:checked");
+      if (mv) localStorage.setItem("sel_mode", mv.value);
+      if (kv) localStorage.setItem("sel_model", kv.value);
+      updateCloudChip();
+    }));
+})();
+
 if (brokerUrl()) {
   checkCloudHealth();
   setInterval(() => { if (!setup.hidden) checkCloudHealth(); }, 60000);   // setup表示中のみ60秒毎
@@ -336,9 +376,11 @@ async function applyEraseCloud(maskFull) {
   } catch (_) {
     el.textContent = "⚠️ この端末では処理がゆっくりになります。「⚡スピード優先」がおすすめです";
     el.className = "gpustatus warn";
-    // 非対応環境では標準モデルを既定に
-    const mg = document.querySelector('input[name=model][value=migan]');
-    if (mg) mg.checked = true;
+    // 非対応環境では標準モデルを既定に(ユーザーが選択を保存済みなら尊重して上書きしない)
+    if (!localStorage.getItem("sel_model")) {
+      const mg = document.querySelector('input[name=model][value=migan]');
+      if (mg) mg.checked = true;
+    }
   }
 })();
 
