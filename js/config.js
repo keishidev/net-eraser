@@ -5,7 +5,9 @@ window.APP_CONFIG = {
   //   「OAuth クライアント ID (ウェブ アプリケーション)」を作成し、
   //   承認済みJavaScript生成元に公開URL(例 https://xxx.github.io)を追加して
   //   ここにクライアントIDを貼る。空文字なら認証なしで誰でも使える。
-  googleClientId: "842344178276-ak9n9mes55of1d22nu9l1v0uvslem22v.apps.googleusercontent.com",
+  //   一旦ログイン無効化中(2026-07-21ユーザー指示)。戻すときは下のIDを googleClientId に設定:
+  //   "842344178276-ak9n9mes55of1d22nu9l1v0uvslem22v.apps.googleusercontent.com"
+  googleClientId: "",
 
   // ログインを許可するメールアドレス(空配列なら誰でもログイン可)
   allowedEmails: [],

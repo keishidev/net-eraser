@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=26");
+  if (!worker) worker = new Worker("js/worker.js?v=27");
   return worker;
 }
 
