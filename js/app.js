@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=30");
+  if (!worker) worker = new Worker("js/worker.js?v=31");
   return worker;
 }
 
@@ -1108,10 +1108,27 @@ $("download").addEventListener("click", () => {
   c.width = W; c.height = H;
   c.getContext("2d").putImageData(new ImageData(out, W, H), 0, 0);
   setOverlay(true, "JPEG生成中…", null);
-  c.toBlob(b => {
+  c.toBlob(async b => {
+    const name = `net_removed_${fade.value}pct.jpg`;
+    // スマホは共有シート経由で「画像を保存」→写真アプリへ入れられる
+    // (デスクトップは従来どおり即ダウンロード)
+    const isTouch = window.matchMedia("(pointer: coarse)").matches;
+    if (isTouch && navigator.canShare) {
+      const file = new File([b], name, { type: "image/jpeg" });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: "ネット消しゴム" });
+          setOverlay(false);
+          return;                                  // 共有シートで保存完了
+        } catch (e) {
+          if (e && e.name === "AbortError") { setOverlay(false); return; }  // ユーザーが閉じた
+          // 不許可等 → ダウンロードにフォールバック
+        }
+      }
+    }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
-    a.download = `net_removed_${fade.value}pct.jpg`;
+    a.download = name;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000);
