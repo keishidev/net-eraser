@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=27");
+  if (!worker) worker = new Worker("js/worker.js?v=28");
   return worker;
 }
 
@@ -94,6 +94,7 @@ const brokerUrl = () => (window.APP_CONFIG || {}).gpuBrokerUrl || "";
 let cloudAlive = false, cloudQueueLen = 0;
 let cloudAbort = null;   // 進行中サーバージョブの中止関数
 let lastFile = null;     // エラー時「端末内処理でやり直す」用
+let lastMode = "kirara"; // 直近handleFileのモード(☁️手直しジョブに使う)
 
 let cloudFails = 0;
 async function checkCloudHealth() {
@@ -110,17 +111,19 @@ async function checkCloudHealth() {
     if (++cloudFails < 2) return;
     cloudAlive = false;
   }
+  updateCloudChip();
+}
+
+// ☁️チップの表示更新: 停止中でも選択中なら隠さず「停止中」表示(勝手に選択を外さない・DLも始めない)
+function updateCloudChip() {
   const chip = $("cloudchip");
-  if (chip) chip.hidden = !cloudAlive;
-  if (!cloudAlive) {
-    // ☁️選択中にワーカーが落ちたら既定(きれい優先)へ戻す — 無言で切り替えない
-    const sel = document.querySelector('input[name=model][value=cloud]');
-    if (sel && sel.checked) {
-      const lama = document.querySelector('input[name=model][value=lama]');
-      if (lama) lama.checked = true;
-      setStatus("☁️ サーバー提供が停止したため「✨きれい優先」に切り替えました");
-    }
-  }
+  if (!chip) return;
+  const sel = document.querySelector('input[name=model][value=cloud]');
+  const selected = !!(sel && sel.checked);
+  chip.hidden = !cloudAlive && !selected;
+  chip.style.opacity = cloudAlive ? "" : ".55";
+  const small = chip.querySelector("small");
+  if (small) small.textContent = cloudAlive ? "開発者のGPUで最高品質・約40秒" : "停止中 — 復帰をお待ちください";
 }
 if (brokerUrl()) {
   checkCloudHealth();
@@ -129,17 +132,17 @@ if (brokerUrl()) {
 
 const authHeaders = () => ({ Authorization: "Bearer " + (window.AUTH_TOKEN || "") });
 
-function uploadCloudJob(base, blob, mode) {
+function uploadCloudJob(base, body, query, label) {
   return new Promise((res, rej) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", base + "/api/job?mode=" + encodeURIComponent(mode));
+    xhr.open("POST", base + "/api/job?" + query);
     xhr.setRequestHeader("Authorization", "Bearer " + (window.AUTH_TOKEN || ""));
     xhr.responseType = "json";
     xhr.timeout = 180000;
     xhr.upload.onprogress = e => {
       if (e.lengthComputable) {
         const p = e.loaded / e.total * 100;
-        setOverlay(true, `☁️ サーバーへ送信中… ${Math.round(p)}%`, p);
+        setOverlay(true, `${label}… ${Math.round(p)}%`, p);
         setTitleProgress(p);
       }
     };
@@ -153,11 +156,11 @@ function uploadCloudJob(base, blob, mode) {
     xhr.ontimeout = () => rej(new Error("送信がタイムアウトしました"));
     xhr.onabort = () => rej(new Error("__cancelled__"));
     cloudAbort = () => { try { xhr.abort(); } catch (_) {} };
-    xhr.send(blob);
+    xhr.send(body);
   });
 }
 
-async function pollCloudJob(base, jobId) {
+async function pollCloudJob(base, jobId, procText) {
   const deadline = performance.now() + 180000;   // 3分でタイムアウト
   let cancelled = false, deadPolls = 0;
   cloudAbort = () => { cancelled = true; };
@@ -177,7 +180,7 @@ async function pollCloudJob(base, jobId) {
     if (j.status === "done") return j.stats || {};
     if (j.status === "failed") throw new Error(j.error || "サーバー処理に失敗しました");
     if (j.status === "processing") {
-      setOverlay(true, "☁️ サーバーのGPUで処理中…(約40秒)", null);   // pct=null: バーは直前値を維持
+      setOverlay(true, procText || "☁️ サーバーのGPUで処理中…(約40秒)", null);   // pct=null: バーは直前値を維持
       setTitleProgress(null);
     } else {   // pending: healthのqueueLenから順番を表示
       try {
@@ -217,7 +220,7 @@ async function processCloud(file, mode, t0) {
       blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.97));
     }
     setOverlay(true, "☁️ サーバーへ送信中… 0%", 0);
-    const jobId = await uploadCloudJob(base, blob, mode);
+    const jobId = await uploadCloudJob(base, blob, "mode=" + encodeURIComponent(mode), "☁️ サーバーへ送信中");
     const stats = await pollCloudJob(base, jobId);
     setOverlay(true, "☁️ 結果を受け取っています…", null);
     const resData = await fetchCloudImage(`${base}/api/job/${jobId}/result`);
@@ -256,6 +259,65 @@ async function processCloud(file, mode, t0) {
     setProcessing(false);
     restoreTitle();
     busy = false;
+  }
+}
+
+// ✨なぞった所を消す をサーバーで実行(multipart: image=現画像JPEG, mask=なぞりPNG 0/255)
+async function applyEraseCloud(maskFull) {
+  try {
+    const base = brokerUrl();
+    // 現在のresultをJPEG化
+    const rc = document.createElement("canvas");
+    rc.width = W; rc.height = H;
+    rc.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(result), W, H), 0, 0);
+    const imgBlob = await new Promise(res => rc.toBlob(res, "image/jpeg", 0.97));
+    // なぞりマスクをPNG化(0/255グレー)
+    const mc = document.createElement("canvas");
+    mc.width = W; mc.height = H;
+    const mctx = mc.getContext("2d");
+    const md = mctx.createImageData(W, H);
+    for (let i = 0, p = 0; i < W * H; i++, p += 4) {
+      const v = maskFull[i];
+      md.data[p] = v; md.data[p + 1] = v; md.data[p + 2] = v; md.data[p + 3] = 255;
+    }
+    mctx.putImageData(md, 0, 0);
+    const maskBlob = await new Promise(res => mc.toBlob(res, "image/png"));
+    const fd = new FormData();
+    fd.append("image", imgBlob, "image.jpg");
+    fd.append("mask", maskBlob, "mask.png");
+    setOverlay(true, "☁️ 手直しを送信中… 0%", 0);
+    const jobId = await uploadCloudJob(base, fd, `mode=${encodeURIComponent(lastMode)}&type=more`, "☁️ 手直しを送信中");
+    await pollCloudJob(base, jobId, "☁️ サーバーで手直し中…(数秒)");
+    setOverlay(true, "☁️ 結果を受け取っています…", null);
+    const resData = await fetchCloudImage(`${base}/api/job/${jobId}/result`);
+    const maskData = await fetchCloudImage(`${base}/api/job/${jobId}/mask`);
+    result = new Uint8ClampedArray(resData);
+    for (let i = 0, p = 0; i < W * H; i++, p += 4)
+      if (maskData[p] > 127 && alphaMap[i] < 1) alphaMap[i] = 1;   // 置換画素をalphaへmax合成
+    cloudAbort = null;
+    eraseDisp.fill(0);
+    strokes = strokes.filter(s => s.layer !== "erase");   // AIに焼き込み済みのため取り消し不可
+    setApplyEnabled(false);
+    buildDisplayCache();
+    render();
+    setOverlay(false);
+    $("controlbar").dataset.disabled = "0";
+    markTitleDone();
+    track("more_applied", { ep: "cloud" });
+  } catch (e) {
+    cloudAbort = null;
+    if (e && e.message === "__cancelled__") {
+      // 中止: なぞり内容ごと編集画面を維持(サーバー側ジョブは自動削除される)
+      setOverlay(false);
+      $("controlbar").dataset.disabled = "0";
+      restoreTitle();
+    } else {
+      console.error(e);
+      track("process_error", { message: ("cloud-more: " + ((e && e.message) || e)).slice(0, 200) });
+      setOverlay(true, "エラー: " + ((e && e.message) || String(e)), null);
+      $("controlbar").dataset.disabled = "0";   // なぞりは残っているので✨で再試行できる
+      restoreTitle();
+    }
   }
 }
 
@@ -314,6 +376,7 @@ async function handleFile(file) {
   try {
     const mode = document.querySelector("input[name=mode]:checked").value;
     const modelKey = document.querySelector("input[name=model]:checked").value;
+    lastMode = mode;
     const img = await loadImage(file);
     W = img.width; H = img.height;
 
@@ -343,8 +406,17 @@ async function handleFile(file) {
       return;
     }
 
-    // ☁️ サーバー高画質処理
+    // ☁️ サーバー高画質処理 — 停止中は黙ってローカル処理へ切り替えない
     if (modelKey === "cloud") {
+      if (!cloudAlive) await checkCloudHealth();   // その場で再確認
+      if (!cloudAlive) {
+        setOverlay(true, "☁️ サーバーが応答しません。復帰を待つか、端末内処理に切り替えてください", null);
+        $("retrylocal").hidden = false;
+        setProcessing(false);
+        restoreTitle();
+        busy = false;
+        return;
+      }
       if (!localStorage.getItem("cloud_consent_ok")) {
         if (!window.confirm("サーバー処理では、この写真が処理のため一時的にサーバーへ送信され、1時間以内に自動削除されます。続けますか？")) {
           setOverlay(false);
@@ -845,6 +917,30 @@ $("applyerase").addEventListener("click", async () => {
   busy = true;
   $("controlbar").dataset.disabled = "1";
   setProcessing(true);
+  // ☁️モード選択中でワーカー生存なら手直しもサーバー実行(直前にヘルス再確認)
+  const modelSel = document.querySelector("input[name=model]:checked").value;
+  let useCloud = false;
+  if (modelSel === "cloud") {
+    setOverlay(true, "☁️ サーバーを確認しています…", null);
+    await checkCloudHealth();
+    useCloud = cloudAlive;
+    if (!useCloud) {
+      // 停止中: 黙ってローカルへフォールバックせず、明示的に確認する
+      if (!window.confirm("☁️ サーバーが停止中です。端末内の軽量モデル(約27MBのダウンロード)で手直ししますか？")) {
+        setOverlay(false);
+        $("controlbar").dataset.disabled = "0";
+        busy = false;
+        setProcessing(false);
+        return;   // なぞりは維持
+      }
+    }
+  }
+  if (useCloud) {
+    await applyEraseCloud(maskFull);
+    busy = false;
+    setProcessing(false);
+    return;
+  }
   setOverlay(true, "指定された場所を消しています…", null);
   try {
     const wk = getWorker();
@@ -860,8 +956,7 @@ $("applyerase").addEventListener("click", async () => {
     });
     const resBuf = result.slice().buffer;   // コピーを転送(手元は保持)
     const mBuf = maskFull.buffer;
-    const mkey0 = document.querySelector("input[name=model]:checked").value;
-    const mkey = mkey0 === "cloud" ? "migan" : mkey0;   // ☁️モードの手直しは軽量ローカルモデル(27MB)で行う
+    const mkey = modelSel === "cloud" ? "migan" : modelSel;   // ☁️モードのローカルフォールバックは軽量モデル(27MB)で行う
     wk.postMessage({
       type: "more", W, H,
       model: mkey,
