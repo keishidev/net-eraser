@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=25");
+  if (!worker) worker = new Worker("js/worker.js?v=26");
   return worker;
 }
 
@@ -95,6 +95,7 @@ let cloudAlive = false, cloudQueueLen = 0;
 let cloudAbort = null;   // 進行中サーバージョブの中止関数
 let lastFile = null;     // エラー時「端末内処理でやり直す」用
 
+let cloudFails = 0;
 async function checkCloudHealth() {
   const base = brokerUrl();
   if (!base) return;
@@ -103,15 +104,21 @@ async function checkCloudHealth() {
     const j = await r.json();
     cloudAlive = !!j.workerAlive;
     cloudQueueLen = j.queueLen | 0;
-  } catch (_) { cloudAlive = false; }
+    cloudFails = 0;
+  } catch (_) {
+    // 通信の瞬断で☁️選択を勝手に外さない: 2回連続失敗した時だけ停止扱い
+    if (++cloudFails < 2) return;
+    cloudAlive = false;
+  }
   const chip = $("cloudchip");
   if (chip) chip.hidden = !cloudAlive;
   if (!cloudAlive) {
-    // ☁️選択中にワーカーが落ちたら既定(きれい優先)へ戻す
+    // ☁️選択中にワーカーが落ちたら既定(きれい優先)へ戻す — 無言で切り替えない
     const sel = document.querySelector('input[name=model][value=cloud]');
     if (sel && sel.checked) {
       const lama = document.querySelector('input[name=model][value=lama]');
       if (lama) lama.checked = true;
+      setStatus("☁️ サーバー提供が停止したため「✨きれい優先」に切り替えました");
     }
   }
 }
@@ -152,7 +159,7 @@ function uploadCloudJob(base, blob, mode) {
 
 async function pollCloudJob(base, jobId) {
   const deadline = performance.now() + 180000;   // 3分でタイムアウト
-  let cancelled = false;
+  let cancelled = false, deadPolls = 0;
   cloudAbort = () => { cancelled = true; };
   while (true) {
     await new Promise(r => setTimeout(r, 2000));   // 2秒毎
@@ -176,7 +183,10 @@ async function pollCloudJob(base, jobId) {
       try {
         const h = await (await fetch(base + "/api/health", { cache: "no-store" })).json();
         cloudQueueLen = h.queueLen | 0;
+        // 順番待ち中にワーカーが落ちたら3分待たせず知らせる(約10秒の猶予)
+        if (h.workerAlive === false) { deadPolls++; } else { deadPolls = 0; }
       } catch (_) {}
+      if (deadPolls >= 5) throw new Error("☁️ サーバーの提供が停止しました。端末内処理をお試しください");
       const ahead = Math.max(0, cloudQueueLen - 1);
       setOverlay(true, `☁️ 順番待ちです…${ahead > 0 ? `(前に${ahead}件)` : ""}`, null);
       setTitleProgress(null);
@@ -850,9 +860,11 @@ $("applyerase").addEventListener("click", async () => {
     });
     const resBuf = result.slice().buffer;   // コピーを転送(手元は保持)
     const mBuf = maskFull.buffer;
+    const mkey0 = document.querySelector("input[name=model]:checked").value;
+    const mkey = mkey0 === "cloud" ? "migan" : mkey0;   // ☁️モードの手直しは軽量ローカルモデル(27MB)で行う
     wk.postMessage({
       type: "more", W, H,
-      model: document.querySelector("input[name=model]:checked").value,
+      model: mkey,
       result: resBuf, mask: mBuf,
     }, [resBuf, mBuf]);
     const m = await done;
