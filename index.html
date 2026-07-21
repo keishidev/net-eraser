@@ -6,13 +6,13 @@
 <title>ネット消しゴム | 防球ネット越しの写真をきれいに</title>
 <meta name="description" content="球場の防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできる無料ツール。写真はアップロードされず、すべてブラウザ内で処理されます。">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥎</text></svg>">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 <header>
   <div class="brand">🥎 <b>ネット消しゴム</b></div>
   <div class="tagline">防球ネット越しに撮った写真から、ネットをきれいに消す・うっすら残す</div>
-  <div class="privacy">🔒 写真はアップロードされません — すべての処理はお使いの端末の中だけで完結します</div>
+  <div class="privacy">🔒 写真はアップロードされません — すべての処理はお使いの端末の中だけで完結します <small>(☁️サーバー処理選択時のみ一時送信・自動削除)</small></div>
 </header>
 
 <main>
@@ -49,6 +49,8 @@
           <span>✨ きれい優先<small>初回のみ198MBダウンロード・めやす1〜2分</small></span></label>
         <label class="chip"><input type="radio" name="model" value="migan">
           <span>⚡ スピード優先<small>軽量27MB・めやす40秒</small></span></label>
+        <label class="chip" id="cloudchip" hidden><input type="radio" name="model" value="cloud">
+          <span>☁️ サーバー高画質<small>開発者のGPUで最高品質・約40秒</small></span></label>
       </div>
     </div>
     <div id="gpustatus" class="gpustatus">🔎 お使いのGPUを確認しています…</div>
@@ -66,6 +68,7 @@
           <div id="ovtext">準備しています…</div>
           <progress id="ovbar" value="0" max="100"></progress>
           <button id="cancelbtn" class="tbtn" style="margin-top:12px">× 中止</button>
+          <button id="retrylocal" class="tbtn" style="margin-top:8px" hidden>端末内処理(きれい優先)でやり直す</button>
         </div>
       </div>
       <div id="hint" class="hint-chip">🖐 画像を押している間、元の写真が見えます</div>
@@ -122,8 +125,8 @@
   <span id="userchip" hidden></span>
 </footer>
 
-<script src="js/config.js?v=23"></script>
-<script src="js/auth.js?v=23"></script>
-<script src="js/app.js?v=23"></script>
+<script src="js/config.js?v=24"></script>
+<script src="js/auth.js?v=24"></script>
+<script src="js/app.js?v=24"></script>
 </body>
 </html>

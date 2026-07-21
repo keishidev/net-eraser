@@ -19,6 +19,7 @@ header { text-align: center; padding: 22px 12px 8px; }
 .brand b { background: linear-gradient(90deg, #cfe0ff, #8fb4ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .tagline { color: #9aa7bd; font-size: 13.5px; margin-top: 6px; }
 .privacy { color: #7fae6d; font-size: 11.5px; margin-top: 7px; padding: 0 12px; }
+.privacy small { font-size: 10px; opacity: .85; }
 
 main { flex: 1; display: flex; flex-direction: column; align-items: center;
        width: 100%; max-width: 1500px; margin: 0 auto; padding: 10px 16px 8px; }

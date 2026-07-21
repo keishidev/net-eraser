@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=23");
+  if (!worker) worker = new Worker("js/worker.js?v=24");
   return worker;
 }
 
@@ -87,6 +87,166 @@ initAnalytics();
 // 匿名イベント送信(画像データ・ファイル名は絶対に送らない)
 function track(ev, props) {
   try { if (window.posthog && window.posthog.capture) window.posthog.capture(ev, props); } catch (_) {}
+}
+
+/* ===== ☁️ サーバー高画質処理 (config駆動) ===== */
+const brokerUrl = () => (window.APP_CONFIG || {}).gpuBrokerUrl || "";
+let cloudAlive = false, cloudQueueLen = 0;
+let cloudAbort = null;   // 進行中サーバージョブの中止関数
+let lastFile = null;     // エラー時「端末内処理でやり直す」用
+
+async function checkCloudHealth() {
+  const base = brokerUrl();
+  if (!base) return;
+  try {
+    const r = await fetch(base + "/api/health", { cache: "no-store" });
+    const j = await r.json();
+    cloudAlive = !!j.workerAlive;
+    cloudQueueLen = j.queueLen | 0;
+  } catch (_) { cloudAlive = false; }
+  const chip = $("cloudchip");
+  if (chip) chip.hidden = !cloudAlive;
+  if (!cloudAlive) {
+    // ☁️選択中にワーカーが落ちたら既定(きれい優先)へ戻す
+    const sel = document.querySelector('input[name=model][value=cloud]');
+    if (sel && sel.checked) {
+      const lama = document.querySelector('input[name=model][value=lama]');
+      if (lama) lama.checked = true;
+    }
+  }
+}
+if (brokerUrl()) {
+  checkCloudHealth();
+  setInterval(() => { if (!setup.hidden) checkCloudHealth(); }, 60000);   // setup表示中のみ60秒毎
+}
+
+const authHeaders = () => ({ Authorization: "Bearer " + (window.AUTH_TOKEN || "") });
+
+function uploadCloudJob(base, blob, mode) {
+  return new Promise((res, rej) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", base + "/api/job?mode=" + encodeURIComponent(mode));
+    xhr.setRequestHeader("Authorization", "Bearer " + (window.AUTH_TOKEN || ""));
+    xhr.responseType = "json";
+    xhr.timeout = 180000;
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) {
+        const p = e.loaded / e.total * 100;
+        setOverlay(true, `☁️ サーバーへ送信中… ${Math.round(p)}%`, p);
+        setTitleProgress(p);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200 && xhr.response && xhr.response.jobId) res(xhr.response.jobId);
+      else if (xhr.status === 401) rej(new Error("__auth401__"));
+      else if (xhr.status === 429) rej(new Error("__limit429__"));
+      else rej(new Error(`送信に失敗しました (HTTP ${xhr.status})`));
+    };
+    xhr.onerror = () => rej(new Error("サーバーに接続できません"));
+    xhr.ontimeout = () => rej(new Error("送信がタイムアウトしました"));
+    xhr.onabort = () => rej(new Error("__cancelled__"));
+    cloudAbort = () => { try { xhr.abort(); } catch (_) {} };
+    xhr.send(blob);
+  });
+}
+
+async function pollCloudJob(base, jobId) {
+  const deadline = performance.now() + 180000;   // 3分でタイムアウト
+  let cancelled = false;
+  cloudAbort = () => { cancelled = true; };
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));   // 2秒毎
+    if (cancelled) throw new Error("__cancelled__");
+    if (performance.now() > deadline) throw new Error("サーバー処理がタイムアウトしました(3分)");
+    let j = null;
+    try {
+      const r = await fetch(`${base}/api/job/${jobId}`, { headers: authHeaders(), cache: "no-store" });
+      if (r.status === 401) throw new Error("__auth401__");
+      j = await r.json();
+    } catch (e) {
+      if (e && e.message === "__auth401__") throw e;
+      continue;   // 一時的な通信失敗・ワーカー生死に関わらず進行中ジョブはポーリング継続
+    }
+    if (j.status === "done") return j.stats || {};
+    if (j.status === "failed") throw new Error(j.error || "サーバー処理に失敗しました");
+    if (j.status === "processing") {
+      setOverlay(true, "☁️ サーバーのGPUで処理中…(約40秒)", null);   // pct=null: バーは直前値を維持
+      setTitleProgress(null);
+    } else {   // pending: healthのqueueLenから順番を表示
+      try {
+        const h = await (await fetch(base + "/api/health", { cache: "no-store" })).json();
+        cloudQueueLen = h.queueLen | 0;
+      } catch (_) {}
+      const ahead = Math.max(0, cloudQueueLen - 1);
+      setOverlay(true, `☁️ 順番待ちです…${ahead > 0 ? `(前に${ahead}件)` : ""}`, null);
+      setTitleProgress(null);
+    }
+  }
+}
+
+async function fetchCloudImage(url) {
+  const r = await fetch(url, { headers: authHeaders() });
+  if (!r.ok) throw new Error(`結果の取得に失敗しました (HTTP ${r.status})`);
+  const bmp = await createImageBitmap(await r.blob());
+  const c = new OffscreenCanvas(W, H);
+  const cx = c.getContext("2d", { willReadFrequently: true });
+  cx.drawImage(bmp, 0, 0, W, H);
+  bmp.close();
+  return cx.getImageData(0, 0, W, H).data;
+}
+
+async function processCloud(file, mode, t0) {
+  try {
+    const base = brokerUrl();
+    // JPEG以外はJPEGへ変換して送信
+    let blob = file;
+    if (file.type !== "image/jpeg") {
+      const c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(orig), W, H), 0, 0);
+      blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.97));
+    }
+    setOverlay(true, "☁️ サーバーへ送信中… 0%", 0);
+    const jobId = await uploadCloudJob(base, blob, mode);
+    const stats = await pollCloudJob(base, jobId);
+    setOverlay(true, "☁️ 結果を受け取っています…", null);
+    const resData = await fetchCloudImage(`${base}/api/job/${jobId}/result`);
+    const maskData = await fetchCloudImage(`${base}/api/job/${jobId}/mask`);
+    result = new Uint8ClampedArray(resData);
+    alphaMap = new Float32Array(W * H);
+    for (let i = 0, p = 0; i < W * H; i++, p += 4) alphaMap[i] = maskData[p] > 127 ? 1 : 0;
+    cloudAbort = null;
+    finishReady({
+      prepMs: 0, detMs: stats.detect_ms || 0, inMs: stats.inpaint_ms || 0,
+      bufMs: 0, sweepMs: 0, finalizeMs: stats.finalize_ms || 0, ep: "cloud",
+    }, (performance.now() - t0) / 1000);
+  } catch (e) {
+    cloudAbort = null;
+    if (e && e.message === "__cancelled__") {
+      // 中止: サーバー側のジョブは放置でよい(1時間以内に自動削除される)
+      setOverlay(false);
+      view.hidden = true; setup.hidden = false;
+      orig = result = alphaMap = origDisp = resultDisp = alphaDisp = protectDisp = null;
+      ready = false; busy = false;
+      setProcessing(false);
+      restoreTitle();
+      fileIn.value = "";
+      track("process_cancelled", {});
+      setStatus("中止しました");
+      return;
+    }
+    const msg =
+      e && e.message === "__auth401__" ? "ログインの有効期限が切れました。再読み込みしてログインし直してください" :
+      e && e.message === "__limit429__" ? "本日のサーバー処理の上限に達しました。端末内処理をご利用ください" :
+      (e && e.message) || String(e);
+    console.error(e);
+    track("process_error", { message: ("cloud: " + msg).slice(0, 200) });
+    setOverlay(true, "エラー: " + msg, null);
+    $("retrylocal").hidden = false;
+    setProcessing(false);
+    restoreTitle();
+    busy = false;
+  }
 }
 
 /* ===== 起動時GPUチェック ===== */
@@ -139,6 +299,8 @@ async function handleFile(file) {
   if (busy) return;
   if (window.AUTH_OK === false) return;   // 認証ゲート
   busy = true; ready = false;
+  lastFile = file;
+  $("retrylocal").hidden = true;
   try {
     const mode = document.querySelector("input[name=mode]:checked").value;
     const modelKey = document.querySelector("input[name=model]:checked").value;
@@ -168,6 +330,22 @@ async function handleFile(file) {
       result = orig.slice();
       alphaMap = new Float32Array(W * H);
       finishReady({ detMs: 0, inMs: 0, bufMs: 0, sweepMs: 0, ep: "fake" }, 0);
+      return;
+    }
+
+    // ☁️ サーバー高画質処理
+    if (modelKey === "cloud") {
+      if (!localStorage.getItem("cloud_consent_ok")) {
+        if (!window.confirm("サーバー処理では、この写真が処理のため一時的にサーバーへ送信され、1時間以内に自動削除されます。続けますか？")) {
+          setOverlay(false);
+          view.hidden = true; setup.hidden = false;
+          ready = false; busy = false;
+          setProcessing(false);
+          return;
+        }
+        localStorage.setItem("cloud_consent_ok", "1");
+      }
+      await processCloud(file, mode, performance.now());
       return;
     }
 
@@ -238,13 +416,14 @@ function finishReady(s, totalSec) {
   stageEl.classList.add("done");
   setTimeout(() => stageEl.classList.remove("done"), 900);
   if (!localStorage.getItem("flowguide_done")) $("flowguide").hidden = false;
-  const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep;
+  const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep === "cloud" ? "☁️サーバー" : s.ep;
   detail.textContent = totalSec
     ? `処理時間 ${totalSec.toFixed(1)}秒（` +
       (s.prepMs > 1000 ? `準備 ${(s.prepMs / 1000).toFixed(1)}s・` : "") +
       `検出 ${(s.detMs / 1000).toFixed(1)}s・ネット消し ${(s.inMs / 1000).toFixed(1)}s` +
       (s.bufMs ? `・整え ${(s.bufMs / 1000).toFixed(1)}s` : "") +
       (s.sweepMs ? `・掃除 ${(s.sweepMs / 1000).toFixed(1)}s` : "") +
+      (s.finalizeMs ? `・仕上げ ${(s.finalizeMs / 1000).toFixed(1)}s` : "") +
       ` ／ ${engine}実行）`
     : "";
 }
@@ -825,7 +1004,16 @@ $("flowclose").addEventListener("click", () => {
 
 /* ===== 処理の中止 ===== */
 $("cancelbtn").addEventListener("click", () => {
+  if (cloudAbort) { cloudAbort(); return; }   // ☁️ジョブはローカルで打ち切る(サーバー側は自動削除)
   if (worker) worker.postMessage({ type: "cancel" });
+});
+
+/* ===== ☁️エラー時: 端末内処理でやり直す ===== */
+$("retrylocal").addEventListener("click", () => {
+  $("retrylocal").hidden = true;
+  const lama = document.querySelector('input[name=model][value=lama]');
+  if (lama) lama.checked = true;
+  if (lastFile) { busy = false; handleFile(lastFile); }
 });
 
 /* デバッグ用フック */

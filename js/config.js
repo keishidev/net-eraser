@@ -15,4 +15,8 @@ window.APP_CONFIG = {
   //   有効化するにはPostHogプロジェクトのAPIキー("phc_...")を貼る。
   posthogToken: "",
   posthogHost: "https://us.i.posthog.com",
+
+  // ☁️ サーバー高画質処理のブローカーAPI (空文字なら機能OFF・チップも出ない)
+  //   開発: "http://localhost:8825" (mock_broker.mjs) / 本番: Cloudflare WorkerのURL
+  gpuBrokerUrl: "",
 };

@@ -10,12 +10,24 @@ const setup = document.getElementById("setup");
 const userchip = document.getElementById("userchip");
 
 window.AUTH_OK = !gate;   // app.js が参照
+window.AUTH_TOKEN = "";   // ☁️サーバー処理APIに使うGoogle IDトークン
+
+// 開発バイパス: localhost + ?devauth=1 のとき認証をスキップ(自動テスト用・本番に影響なし)
+if (location.hostname === "localhost" && location.search.includes("devauth=1")) {
+  window.AUTH_OK = true;
+  window.AUTH_TOKEN = "dev-token";
+  return;
+}
 
 if (!gate) return;
 
 // 認証必要: セッションに記録があれば復元
 const saved = sessionStorage.getItem("auth_email");
-if (saved) { grant(saved); return; }
+if (saved) {
+  window.AUTH_TOKEN = sessionStorage.getItem("auth_token") || "";
+  grant(saved);
+  return;
+}
 
 // ログイン画面を表示
 setup.hidden = true;
@@ -45,6 +57,8 @@ function onCredential(resp) {
       return;
     }
     sessionStorage.setItem("auth_email", email);
+    sessionStorage.setItem("auth_token", resp.credential);
+    window.AUTH_TOKEN = resp.credential;
     grant(email);
   } catch (e) {
     document.getElementById("loginmsg").textContent = "ログインに失敗しました";
