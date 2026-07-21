@@ -89,7 +89,10 @@ canvas {
   display: block; max-width: 100%; max-height: calc(100vh - 250px);
   width: auto; height: auto;
   touch-action: none; user-select: none; -webkit-user-drag: none;
+  /* iOSの長押しコールアウト(コピー/調べる)を抑止 — 長押し比較・ブラシと衝突するため */
+  -webkit-touch-callout: none; -webkit-user-select: none;
 }
+#stage { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 /* フローガイド表示中は保存ボタンが画面外に出ないよう控えめに */
 #view:has(#flowguide:not([hidden])) canvas { max-height: calc(100vh - 380px); }
 

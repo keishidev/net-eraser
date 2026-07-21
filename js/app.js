@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=31");
+  if (!worker) worker = new Worker("js/worker.js?v=32");
   return worker;
 }
 
@@ -788,6 +788,7 @@ function updateBrushCursor(ev) {
 }
 
 canvas.addEventListener("dragstart", ev => ev.preventDefault());
+canvas.addEventListener("contextmenu", ev => ev.preventDefault());   // 長押し/右クリックのOSメニュー抑止(比較・ブラシ優先)
 canvas.addEventListener("pointerdown", ev => {
   if (!ready) return;
   activePointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
