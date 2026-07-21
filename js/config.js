@@ -18,5 +18,5 @@ window.APP_CONFIG = {
 
   // ☁️ サーバー高画質処理のブローカーAPI (空文字なら機能OFF・チップも出ない)
   //   開発: "http://localhost:8825" (mock_broker.mjs) / 本番: Cloudflare WorkerのURL
-  gpuBrokerUrl: "",
+  gpuBrokerUrl: "https://apiphotoapp.omusuvy.com",
 };
