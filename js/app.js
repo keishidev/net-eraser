@@ -51,7 +51,7 @@ function setProcessing(on) {   // 処理中は保存/別の写真/Undoを無効�
 }
 
 function getWorker() {
-  if (!worker) worker = new Worker("js/worker.js?v=32");
+  if (!worker) worker = new Worker("js/worker.js?v=33");
   return worker;
 }
 
@@ -73,7 +73,7 @@ function initAnalytics() {
       disable_session_recording: true,
       persistence: "localStorage",
       loaded: () => {
-        // 💬ボタンのクリック処理は書かない: PostHogサーベイ(widget selector)が拾う
+        // ボタンのクリック処理は書かない: PostHogサーベイ(widget selector)が拾う
         const b = $("feedbackbtn"); if (b) b.hidden = false;
         const n = $("statsnote"); if (n) n.hidden = false;
       },
@@ -89,12 +89,12 @@ function track(ev, props) {
   try { if (window.posthog && window.posthog.capture) window.posthog.capture(ev, props); } catch (_) {}
 }
 
-/* ===== ☁️ サーバー高画質処理 (config駆動) ===== */
+/* ===== サーバー高画質処理 (config駆動) ===== */
 const brokerUrl = () => (window.APP_CONFIG || {}).gpuBrokerUrl || "";
 let cloudAlive = false, cloudQueueLen = 0;
 let cloudAbort = null;   // 進行中サーバージョブの中止関数
 let lastFile = null;     // エラー時「端末内処理でやり直す」用
-let lastMode = "kirara"; // 直近handleFileのモード(☁️手直しジョブに使う)
+let lastMode = "kirara"; // 直近handleFileのモード(手直しジョブに使う)
 
 let cloudFails = 0;
 async function checkCloudHealth() {
@@ -107,11 +107,11 @@ async function checkCloudHealth() {
     cloudQueueLen = j.queueLen | 0;
     cloudFails = 0;
   } catch (_) {
-    // 通信の瞬断で☁️選択を勝手に外さない: 2回連続失敗した時だけ停止扱い
+    // 通信の瞬断で選択を勝手に外さない: 2回連続失敗した時だけ停止扱い
     if (++cloudFails < 2) return;
     cloudAlive = false;
   }
-  // 既定は☁️: ワーカー稼働中で、ユーザーがまだ仕上がりを一度も選んでいなければ自動選択
+  // 既定は: ワーカー稼働中で、ユーザーがまだ仕上がりを一度も選んでいなければ自動選択
   // (プログラム的なchecked変更はchangeイベントを発火しないため保存はされない)
   if (cloudAlive && !localStorage.getItem("sel_model")) {
     const cr = document.querySelector('input[name=model][value=cloud]');
@@ -120,7 +120,7 @@ async function checkCloudHealth() {
   updateCloudChip();
 }
 
-// ☁️チップの表示更新: 停止中でも選択中なら隠さず「停止中」表示(勝手に選択を外さない・DLも始めない)
+// チップの表示更新: 停止中でも選択中なら隠さず「停止中」表示(勝手に選択を外さない・DLも始めない)
 function updateCloudChip() {
   const chip = $("cloudchip");
   if (!chip) return;
@@ -132,7 +132,7 @@ function updateCloudChip() {
   if (small) small.textContent = cloudAlive ? "開発者のGPUで最高品質・約40秒" : "停止中 — 復帰をお待ちください";
 }
 // モード/仕上がりの選択を記憶して復元
-// (再読み込みで☁️選択が外れ、気づかず端末内処理+モデルDLになる事故の防止)
+// (再読み込みで選択が外れ、気づかず端末内処理+モデルDLになる事故の防止)
 (function restoreChoices() {
   const savedMode = localStorage.getItem("sel_mode");
   if (savedMode) {
@@ -220,7 +220,7 @@ async function pollCloudJob(base, jobId, procText) {
     if (j.status === "done") return j.stats || {};
     if (j.status === "failed") throw new Error(j.error || "サーバー処理に失敗しました");
     if (j.status === "processing") {
-      setOverlay(true, procText || "☁️ サーバーのGPUで処理中…(約40秒)", null);   // pct=null: バーは直前値を維持
+      setOverlay(true, procText || "サーバーのGPUで処理中…(約40秒)", null);   // pct=null: バーは直前値を維持
       setTitleProgress(null);
     } else {   // pending: healthのqueueLenから順番を表示
       try {
@@ -229,9 +229,9 @@ async function pollCloudJob(base, jobId, procText) {
         // 順番待ち中にワーカーが落ちたら3分待たせず知らせる(約10秒の猶予)
         if (h.workerAlive === false) { deadPolls++; } else { deadPolls = 0; }
       } catch (_) {}
-      if (deadPolls >= 5) throw new Error("☁️ サーバーの提供が停止しました。端末内処理をお試しください");
+      if (deadPolls >= 5) throw new Error("サーバーの提供が停止しました。端末内処理をお試しください");
       const ahead = Math.max(0, cloudQueueLen - 1);
-      setOverlay(true, `☁️ 順番待ちです…${ahead > 0 ? `(前に${ahead}件)` : ""}`, null);
+      setOverlay(true, `順番待ちです…${ahead > 0 ? `(前に${ahead}件)` : ""}`, null);
       setTitleProgress(null);
     }
   }
@@ -258,10 +258,10 @@ async function processCloud(file, mode, t0) {
     c.width = W; c.height = H;
     c.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(orig), W, H), 0, 0);
     const blob = await new Promise(res => c.toBlob(res, "image/jpeg", 0.97));
-    setOverlay(true, "☁️ サーバーへ送信中… 0%", 0);
-    const jobId = await uploadCloudJob(base, blob, "mode=" + encodeURIComponent(mode), "☁️ サーバーへ送信中");
+    setOverlay(true, "サーバーへ送信中… 0%", 0);
+    const jobId = await uploadCloudJob(base, blob, "mode=" + encodeURIComponent(mode), "サーバーへ送信中");
     const stats = await pollCloudJob(base, jobId);
-    setOverlay(true, "☁️ 結果を受け取っています…", null);
+    setOverlay(true, "結果を受け取っています…", null);
     const resData = await fetchCloudImage(`${base}/api/job/${jobId}/result`);
     const maskData = await fetchCloudImage(`${base}/api/job/${jobId}/mask`);
     result = new Uint8ClampedArray(resData);
@@ -301,7 +301,7 @@ async function processCloud(file, mode, t0) {
   }
 }
 
-// ✨なぞった所を消す をサーバーで実行(multipart: image=現画像JPEG, mask=なぞりPNG 0/255)
+// なぞった所を消す をサーバーで実行(multipart: image=現画像JPEG, mask=なぞりPNG 0/255)
 async function applyEraseCloud(maskFull) {
   try {
     const base = brokerUrl();
@@ -324,10 +324,10 @@ async function applyEraseCloud(maskFull) {
     const fd = new FormData();
     fd.append("image", imgBlob, "image.jpg");
     fd.append("mask", maskBlob, "mask.png");
-    setOverlay(true, "☁️ 手直しを送信中… 0%", 0);
-    const jobId = await uploadCloudJob(base, fd, `mode=${encodeURIComponent(lastMode)}&type=more`, "☁️ 手直しを送信中");
-    await pollCloudJob(base, jobId, "☁️ サーバーで手直し中…(数秒)");
-    setOverlay(true, "☁️ 結果を受け取っています…", null);
+    setOverlay(true, "手直しを送信中… 0%", 0);
+    const jobId = await uploadCloudJob(base, fd, `mode=${encodeURIComponent(lastMode)}&type=more`, "手直しを送信中");
+    await pollCloudJob(base, jobId, "サーバーで手直し中…(数秒)");
+    setOverlay(true, "結果を受け取っています…", null);
     const resData = await fetchCloudImage(`${base}/api/job/${jobId}/result`);
     const maskData = await fetchCloudImage(`${base}/api/job/${jobId}/mask`);
     result = new Uint8ClampedArray(resData);
@@ -354,7 +354,7 @@ async function applyEraseCloud(maskFull) {
       console.error(e);
       track("process_error", { message: ("cloud-more: " + ((e && e.message) || e)).slice(0, 200) });
       setOverlay(true, "エラー: " + ((e && e.message) || String(e)), null);
-      $("controlbar").dataset.disabled = "0";   // なぞりは残っているので✨で再試行できる
+      $("controlbar").dataset.disabled = "0";   // なぞりは残っているのでで再試行できる
       restoreTitle();
     }
   }
@@ -370,10 +370,10 @@ async function applyEraseCloud(maskFull) {
     const info = ad.info || {};
     const name = [info.description, info.device, info.vendor, info.architecture]
       .filter(v => v && String(v).trim()).map(String)[0] || "";
-    el.textContent = `✅ この端末なら高速に処理できます${name ? "（" + name + "）" : ""}`;
+    el.textContent = `この端末なら高速に処理できます${name ? "（" + name + "）" : ""}`;
     el.className = "gpustatus ok";
   } catch (_) {
-    el.textContent = "⚠️ この端末では処理がゆっくりになります。「⚡スピード優先」がおすすめです";
+    el.textContent = "この端末では処理がゆっくりになります。「スピード優先」がおすすめです";
     el.className = "gpustatus warn";
     // 非対応環境では標準モデルを既定に(ユーザーが選択を保存済みなら尊重して上書きしない)
     if (!localStorage.getItem("sel_model")) {
@@ -447,11 +447,11 @@ async function handleFile(file) {
       return;
     }
 
-    // ☁️ サーバー高画質処理 — 停止中は黙ってローカル処理へ切り替えない
+    // サーバー高画質処理 — 停止中は黙ってローカル処理へ切り替えない
     if (modelKey === "cloud") {
       if (!cloudAlive) await checkCloudHealth();   // その場で再確認
       if (!cloudAlive) {
-        setOverlay(true, "☁️ サーバーが応答しません。復帰を待つか、端末内処理に切り替えてください", null);
+        setOverlay(true, "サーバーが応答しません。復帰を待つか、端末内処理に切り替えてください", null);
         $("retrylocal").hidden = false;
         setProcessing(false);
         restoreTitle();
@@ -539,7 +539,7 @@ function finishReady(s, totalSec) {
   stageEl.classList.add("done");
   setTimeout(() => stageEl.classList.remove("done"), 900);
   if (!localStorage.getItem("flowguide_done")) $("flowguide").hidden = false;
-  const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep === "cloud" ? "☁️サーバー" : s.ep;
+  const engine = s.ep === "webgpu" ? "GPU" : s.ep === "wasm" ? "CPU" : s.ep === "cloud" ? "サーバー" : s.ep;
   detail.textContent = totalSec
     ? `処理時間 ${totalSec.toFixed(1)}秒（` +
       (s.prepMs > 1000 ? `準備 ${(s.prepMs / 1000).toFixed(1)}s・` : "") +
@@ -629,17 +629,17 @@ function render() {
       let r = resultDisp[p]     * (1 - wgt) + origDisp[p]     * wgt;
       let g = resultDisp[p + 1] * (1 - wgt) + origDisp[p + 1] * wgt;
       let b = resultDisp[p + 2] * (1 - wgt) + origDisp[p + 2] * wgt;
-      if (showMask && a > 0.04) {   // 🔵 AIが修正した場所
+      if (showMask && a > 0.04) {   // AIが修正した場所
         g = Math.min(255, g + 34 * a);
         b = Math.min(255, b + 95 * a);
       }
       const ev = eraseDisp[i];
-      if (ev > 0) {                 // 🧽 消し指定(適用前)は緑
+      if (ev > 0) {                 // 消し指定(適用前)は緑
         g = Math.min(255, g + 85 * ev);
         r = r * (1 - 0.15 * ev);
       }
       const pv = protectDisp[i];
-      if (pv > 0) {                 // 🖌 保護(最優先)
+      if (pv > 0) {                 // 保護(最優先)
         r = r * (1 - pv) + origDisp[p]     * pv;
         g = g * (1 - pv) + origDisp[p + 1] * pv;
         b = b * (1 - pv) + origDisp[p + 2] * pv;
@@ -670,18 +670,18 @@ function renderZoomed(beta, dw, dh) {
       let r = result[op]     * (1 - wgt) + orig[op]     * wgt;
       let g = result[op + 1] * (1 - wgt) + orig[op + 1] * wgt;
       let b = result[op + 2] * (1 - wgt) + orig[op + 2] * wgt;
-      if (showMask && a > 0.04) {   // 🔵 AIが修正した場所
+      if (showMask && a > 0.04) {   // AIが修正した場所
         g = Math.min(255, g + 34 * a);
         b = Math.min(255, b + 95 * a);
       }
       const di = dyBase + Math.min(dw - 1, Math.round(ox * dispScale));
       const ev = eraseDisp[di];
-      if (ev > 0) {                 // 🧽 消し指定(適用前)は緑
+      if (ev > 0) {                 // 消し指定(適用前)は緑
         g = Math.min(255, g + 85 * ev);
         r = r * (1 - 0.15 * ev);
       }
       const pv = protectDisp[di];
-      if (pv > 0) {                 // 🖌 保護(最優先)
+      if (pv > 0) {                 // 保護(最優先)
         r = r * (1 - pv) + orig[op]     * pv;
         g = g * (1 - pv) + orig[op + 1] * pv;
         b = b * (1 - pv) + orig[op + 2] * pv;
@@ -713,7 +713,7 @@ function clampViewport() {
 function updateZoomChip() {
   const on = zoom > 1.01;
   $("zoomchip").hidden = !on;
-  if (on) $("zoomval").textContent = zoom.toFixed(1) + "×";
+  if (on) $("zoomval").textContent = zoom.toFixed(1) + "x";
 }
 function setZoomAt(nz, cx, cy) {   // cx,cy: canvas px 上のアンカー
   nz = Math.min(8, Math.max(1, nz));
@@ -776,7 +776,7 @@ function updateBrushCursor(ev) {
   brushCursor.style.borderColor = brushMode === "erase" ? "#7fe08f" : "#ff8aa0";
   const stage = $("stage").getBoundingClientRect();
   const rect = canvas.getBoundingClientRect();
-  // 表示上のブラシ直径 = ブラシサイズ(canvas px) × 表示スケール
+  // 表示上のブラシ直径 = ブラシサイズ(canvas px) x 表示スケール
   const dia = (+$("brushsize").value) * rect.width / canvas.width;
   brushCursor.style.width = dia + "px";
   brushCursor.style.height = dia + "px";
@@ -821,7 +821,7 @@ canvas.addEventListener("pointerdown", ev => {
     holdCompare = true;   // 長押し比較(拡大中はドラッグでパンも)
     if (zoom > 1) { panning = true; panLast = { x: ev.clientX, y: ev.clientY }; }
     try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
-    $("hint").textContent = "🖐 元画像を表示中(離すと戻る)";
+    $("hint").textContent = "元画像を表示中(離すと戻る)";
     queueRender();
   }
   ev.preventDefault();
@@ -856,7 +856,7 @@ function endPointer(ev) {
   painting = false;
   if (holdCompare) {
     holdCompare = false;
-    $("hint").textContent = "🖐 画像を長押しで元画像と比較／ホイールで拡大";
+    $("hint").textContent = "画像を長押しで元画像と比較／ホイールで拡大";
     queueRender();
   }
 }
@@ -911,11 +911,11 @@ function undoStroke() {
   queueRender();
 }
 
-// ✨ボタンの有効/無効とtitleをまとめて切替
+// ボタンの有効/無効とtitleをまとめて切替
 function setApplyEnabled(on) {
   const b = $("applyerase");
   b.disabled = !on;
-  b.title = on ? "緑でなぞった場所をAIで消します" : "先に🧽消しツールで場所をなぞってください";
+  b.title = on ? "緑でなぞった場所をAIで消します" : "先に消しツールで場所をなぞってください";
 }
 
 function setBrushMode(mode) {
@@ -930,9 +930,9 @@ function setBrushMode(mode) {
   canvas.style.cursor = brushMode !== "none" ? "none" : "";
   if (brushMode === "none") brushCursor.hidden = true;
   $("hint").textContent =
-    brushMode === "protect" ? "🖌 なぞった場所は変換されません(赤)" :
-    brushMode === "erase"   ? "🧽 なぞった場所も消します(緑) → ✨適用" :
-    "🖐 画像を押している間、元の写真が見えます／ホイールで拡大";
+    brushMode === "protect" ? "なぞった場所は変換されません(赤)" :
+    brushMode === "erase"   ? "なぞった場所も消します(緑) → 適用" :
+    "画像を押している間、元の写真が見えます／ホイールで拡大";
   if (brushMode === "protect" && !showProtect) toggleShowProtect();
   queueRender();
 }
@@ -959,16 +959,16 @@ $("applyerase").addEventListener("click", async () => {
   busy = true;
   $("controlbar").dataset.disabled = "1";
   setProcessing(true);
-  // ☁️モード選択中でワーカー生存なら手直しもサーバー実行(直前にヘルス再確認)
+  // モード選択中でワーカー生存なら手直しもサーバー実行(直前にヘルス再確認)
   const modelSel = document.querySelector("input[name=model]:checked").value;
   let useCloud = false;
   if (modelSel === "cloud") {
-    setOverlay(true, "☁️ サーバーを確認しています…", null);
+    setOverlay(true, "サーバーを確認しています…", null);
     await checkCloudHealth();
     useCloud = cloudAlive;
     if (!useCloud) {
       // 停止中: 黙ってローカルへフォールバックせず、明示的に確認する
-      if (!window.confirm("☁️ サーバーが停止中です。端末内の軽量モデル(約27MBのダウンロード)で手直ししますか？")) {
+      if (!window.confirm("サーバーが停止中です。端末内の軽量モデル(約27MBのダウンロード)で手直ししますか？")) {
         setOverlay(false);
         $("controlbar").dataset.disabled = "0";
         busy = false;
@@ -998,7 +998,7 @@ $("applyerase").addEventListener("click", async () => {
     });
     const resBuf = result.slice().buffer;   // コピーを転送(手元は保持)
     const mBuf = maskFull.buffer;
-    const mkey = modelSel === "cloud" ? "migan" : modelSel;   // ☁️モードのローカルフォールバックは軽量モデル(27MB)で行う
+    const mkey = modelSel === "cloud" ? "migan" : modelSel;   // モードのローカルフォールバックは軽量モデル(27MB)で行う
     wk.postMessage({
       type: "more", W, H,
       model: mkey,
@@ -1053,8 +1053,8 @@ $("showmaskbtn").addEventListener("click", () => {
   $("showmaskbtn").classList.toggle("pressed", showMask);
   $("showmaskbtn").setAttribute("aria-pressed", String(showMask));
   $("hint").textContent = showMask
-    ? "🔵 青 = AIが修正した場所 ／ 🔴 赤 = 保護した場所"
-    : (brushMode !== "none" ? "🖌 ブラシでなぞってください" : "🖐 画像を押している間、元の写真が見えます");
+    ? "青 = AIが修正した場所 ／ 赤 = 保護した場所"
+    : (brushMode !== "none" ? "ブラシでなぞってください" : "画像を押している間、元の写真が見えます");
   queueRender();
 });
 $("clearprotect").addEventListener("click", () => {
@@ -1170,11 +1170,11 @@ $("flowclose").addEventListener("click", () => {
 
 /* ===== 処理の中止 ===== */
 $("cancelbtn").addEventListener("click", () => {
-  if (cloudAbort) { cloudAbort(); return; }   // ☁️ジョブはローカルで打ち切る(サーバー側は自動削除)
+  if (cloudAbort) { cloudAbort(); return; }   // ジョブはローカルで打ち切る(サーバー側は自動削除)
   if (worker) worker.postMessage({ type: "cancel" });
 });
 
-/* ===== ☁️エラー時: 端末内処理でやり直す ===== */
+/* ===== エラー時: 端末内処理でやり直す ===== */
 $("retrylocal").addEventListener("click", () => {
   $("retrylocal").hidden = true;
   const lama = document.querySelector('input[name=model][value=lama]');

@@ -5,21 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ネット消しゴム | 防球ネット越しの写真をきれいに</title>
 <meta name="description" content="球場の防球ネット越しに撮った写真から、ネットをきれいに消したり、うっすら残したりできる無料ツール。写真はアップロードされず、すべてブラウザ内で処理されます。">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥎</text></svg>">
-<link rel="stylesheet" href="style.css?v=32">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1.5' y='1.5' width='13' height='13' rx='3' fill='none' stroke='%23969696' stroke-width='1.5'/%3E%3Cpath d='M4.5 11.5 L11.5 4.5' stroke='%23d8d8d8' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
 <header>
-  <div class="brand">🥎 <b>ネット消しゴム</b></div>
-  <div class="tagline">防球ネット越しに撮った写真から、ネットをきれいに消す・うっすら残す</div>
-  <div class="privacy">🔒 写真はアップロードされません — すべての処理はお使いの端末の中だけで完結します <small>(☁️サーバー処理選択時のみ一時送信・自動削除)</small></div>
+  <div class="brand"><b>ネット消しゴム</b></div>
+  <div class="privacy">写真はアップロードされません — 処理は端末内で完結します <small>(サーバー高画質選択時のみ一時送信・自動削除)</small></div>
 </header>
 
 <main>
   <!-- ===== ログイン(認証が有効な場合のみ表示) ===== -->
   <section id="login" hidden>
     <div class="logincard">
-      <div class="loginicon">🔐</div>
+      <div class="loginicon"><svg class="icon" width="24" height="24" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="10" height="6.5" rx="1"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg></div>
       <p class="logintitle">ログインが必要です</p>
       <p class="loginsub">Googleアカウントでログインしてください</p>
       <div id="gsi-button"></div>
@@ -30,30 +29,30 @@
   <!-- ===== 開始画面 ===== -->
   <section id="setup">
     <div id="drop" class="drop">
-      <div class="dropicon">📷</div>
-      <p class="droptitle">ここに写真をドロップ</p>
-      <p class="dropsub">クリックして選択もできます（JPEG / PNG）</p>
+      <div class="dropicon"><svg class="icon" width="28" height="28" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><circle cx="5.5" cy="6.5" r="1"/><path d="M2 11l3.5-3.5 2.5 2.5 2-2L14 12"/></svg></div>
+      <p class="droptitle">写真をここにドラッグ、またはクリックして選択</p>
+      <p class="dropsub">JPEG / PNG</p>
       <input type="file" id="file" accept="image/*" hidden>
     </div>
     <div class="options">
       <div class="optgroup">
         <div class="optlabel">モード</div>
         <label class="chip"><input type="radio" name="mode" value="kirara" checked>
-          <span>🐹 マスコット写真<small>顔・肉球などを自動で保護</small></span></label>
+          <span>マスコット写真<small>顔・肉球などを自動で保護</small></span></label>
         <label class="chip"><input type="radio" name="mode" value="generic">
-          <span>🌏 その他の写真<small>風景・人物などネット越し全般</small></span></label>
+          <span>風景・その他<small>人物などネット越し全般</small></span></label>
       </div>
       <div class="optgroup">
         <div class="optlabel">仕上がり</div>
         <label class="chip"><input type="radio" name="model" value="lama" checked>
-          <span>✨ きれい優先<small>初回のみ198MBダウンロード・めやす1〜2分</small></span></label>
+          <span>きれい優先<small>初回のみ198MBダウンロード・めやす1〜2分</small></span></label>
         <label class="chip"><input type="radio" name="model" value="migan">
-          <span>⚡ スピード優先<small>軽量27MB・めやす40秒</small></span></label>
+          <span>スピード優先<small>軽量27MB・めやす40秒</small></span></label>
         <label class="chip" id="cloudchip" hidden><input type="radio" name="model" value="cloud">
-          <span>☁️ サーバー高画質<small>開発者のGPUで最高品質・約40秒</small></span></label>
+          <span>サーバー高画質<small>開発者のGPUで最高品質・約40秒</small></span></label>
       </div>
     </div>
-    <div id="gpustatus" class="gpustatus">🔎 お使いのGPUを確認しています…</div>
+    <div id="gpustatus" class="gpustatus">お使いのGPUを確認しています…</div>
     <div id="status" class="status"></div>
   </section>
 
@@ -67,17 +66,17 @@
           <div class="spinner"></div>
           <div id="ovtext">準備しています…</div>
           <progress id="ovbar" value="0" max="100"></progress>
-          <button id="cancelbtn" class="tbtn" style="margin-top:12px">× 中止</button>
-          <button id="retrylocal" class="tbtn" style="margin-top:8px" hidden>✨ 端末内処理でやる(モデルのダウンロードあり)</button>
+          <button id="cancelbtn" class="tbtn" style="margin-top:14px">中止</button>
+          <button id="retrylocal" class="tbtn" style="margin-top:8px" hidden>端末内処理でやる(モデルのダウンロードあり)</button>
         </div>
       </div>
-      <div id="hint" class="hint-chip">🖐 画像を押している間、元の写真が見えます</div>
-      <div id="zoomchip" class="zoomchip" hidden>🔍 <span id="zoomval">2.0×</span> <button id="zoomreset">全体表示</button></div>
+      <div id="hint" class="hint-chip">画像を押している間、元の写真が見えます</div>
+      <div id="zoomchip" class="zoomchip" hidden><svg class="icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg> <span id="zoomval">2.0x</span> <button id="zoomreset">全体表示</button></div>
     </div>
 
     <div id="flowguide" class="flowguide" hidden>
-      <span>1. 自動でネットを消しました → 2. 気になる所は 🖌保護 / 🧽消し で手直し → 3. 濃さを決めて 💾保存</span>
-      <button id="flowclose" title="閉じる">×</button>
+      <span>1. 自動でネットを消しました → 2. 気になる所は 保護 / 消し で手直し → 3. 濃さを決めて保存</span>
+      <button id="flowclose" title="閉じる"><svg class="icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
     </div>
 
     <div id="controlbar" class="cbar" data-disabled="1">
@@ -98,20 +97,20 @@
       <div class="cgroup">
         <span class="glabel">ツール</span>
         <div class="seg">
-          <button id="viewtool" class="segbtn pressed" aria-pressed="true" title="画像を押している間、元の写真と比較">🖐 比較</button>
-          <button id="brushbtn" class="segbtn pink" aria-pressed="false" title="なぞった場所を守る(変換しない)">🖌 保護</button>
-          <button id="erasebtn" class="segbtn green" aria-pressed="false" title="なぞった場所も追加で消す">🧽 消し</button>
+          <button id="viewtool" class="segbtn pressed" aria-pressed="true" title="画像を押している間、元の写真と比較"><svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="1.5"/><path d="M8 2.5v11"/></svg>比較</button>
+          <button id="brushbtn" class="segbtn pink" aria-pressed="false" title="なぞった場所を守る(変換しない)"><svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.7 2.6l2.7 2.7L7 11.7 3.5 12.5 4.3 9z"/><path d="M9.3 4l2.7 2.7"/></svg>保護</button>
+          <button id="erasebtn" class="segbtn green" aria-pressed="false" title="なぞった場所も追加で消す"><svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.6 3l3.4 3.4a1 1 0 0 1 0 1.4l-4.8 4.8H5.6L2.9 9.9a1 1 0 0 1 0-1.4L8.2 3a1 1 0 0 1 1.4 0z"/><path d="M5.5 13h8"/></svg>消し</button>
         </div>
         <span class="glabel">太さ</span>
         <input type="range" id="brushsize" min="10" max="160" value="50" disabled aria-label="ブラシの太さ" title="ブラシの大きさ">
-        <button id="applyerase" class="applybtn" disabled title="先に🧽消しツールで場所をなぞってください">✨ なぞった所を消す</button>
-        <button id="undobtn" class="tbtn" title="直前のひと塗りを取り消す (Ctrl+Z)">↶ 戻す</button>
-        <button id="clearprotect" class="tbtn" title="いま選んでいるツールの塗りを取り消す">↺ 塗りを消す</button>
+        <button id="applyerase" class="applybtn" disabled title="先に消しツールで場所をなぞってください">なぞった所を消す</button>
+        <button id="undobtn" class="tbtn" title="直前のひと塗りを取り消す (Ctrl+Z)"><svg class="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 6.5h6a3.5 3.5 0 0 1 0 7H6"/><path d="M6 4L3.5 6.5 6 9"/></svg>戻す</button>
+        <button id="clearprotect" class="tbtn" title="いま選んでいるツールの塗りを取り消す">塗りを消す</button>
       </div>
       <div class="csep"></div>
       <div class="cgroup">
-        <button id="download" class="primary">💾 この濃さで保存</button>
-        <button id="reset" class="tbtn">📁 別の写真</button>
+        <button id="download" class="primary">この濃さで保存</button>
+        <button id="reset" class="tbtn">別の写真</button>
       </div>
     </div>
     <div id="detail" class="detail"></div>
@@ -120,13 +119,13 @@
 
 <footer>
   <span>モデル: LaMa / MI-GAN（オープンソース）・推論: WebGPU</span>
-  <span id="statsnote" hidden>📊 匿名の利用統計を送信します(写真は送信されません)</span>
-  <button id="feedbackbtn" class="feedbackbtn" hidden>💬 ご要望・不具合はこちら</button>
+  <span id="statsnote" hidden>匿名の利用統計を送信します(写真は送信されません)</span>
+  <button id="feedbackbtn" class="feedbackbtn" hidden>ご要望・不具合はこちら</button>
   <span id="userchip" hidden></span>
 </footer>
 
-<script src="js/config.js?v=32"></script>
-<script src="js/auth.js?v=32"></script>
-<script src="js/app.js?v=32"></script>
+<script src="js/config.js?v=33"></script>
+<script src="js/auth.js?v=33"></script>
+<script src="js/app.js?v=33"></script>
 </body>
 </html>
